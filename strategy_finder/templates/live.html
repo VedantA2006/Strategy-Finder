@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="10">
+    <title>Strategy Finder — Live Status</title>
+    <meta name="description" content="Real-time runner status for the autonomous strategy discovery engine.">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ─── Navbar ──────────────────────────────────────────────────────────── -->
+<nav class="navbar">
+    <div class="container">
+        <a href="/" class="nav-brand">
+            <span class="logo">⚡ StrategyFinder</span>
+            <span class="tagline">ATR-Based Discovery Engine</span>
+        </a>
+        <ul class="nav-links">
+            <li><a href="/">Leaderboard</a></li>
+            <li><a href="/live" class="active">Live Status</a></li>
+        </ul>
+    </div>
+</nav>
+
+<div class="container">
+    <!-- ─── Header ─────────────────────────────────────────────────────── -->
+    <div class="page-header">
+        <h1><span class="pulse-dot"></span> Runner Status</h1>
+        <p class="subtitle">Auto-refreshes every 10 seconds</p>
+    </div>
+
+    <!-- ─── Stats Cards ────────────────────────────────────────────────── -->
+    <div class="stats-bar">
+        <div class="stat-card">
+            <div class="label">Total Strategies</div>
+            <div class="value blue">{{ total }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Generations Today</div>
+            <div class="value amber">{{ stats.runs }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Tested Today</div>
+            <div class="value">{{ stats.total_tested }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Best Score Today</div>
+            <div class="value green">{{ "%.2f"|format(stats.best_today) }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">All-Time Best</div>
+            <div class="value green">
+                {% if top1 %}
+                    {{ "%.2f"|format(top1.metrics.score) }}
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Best Strategy</div>
+            <div class="value" style="font-size:1rem;">
+                {% if top1 %}
+                    <a href="/strategy/{{ top1.id }}" class="strategy-link">{{ top1.name }}</a>
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Recent Run Log (from DB) ───────────────────────────────────── -->
+    <div class="chart-container">
+        <h3>Recent Generations</h3>
+        <div class="table-container" style="box-shadow:none;border:none;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Generation</th>
+                        <th>Tested</th>
+                        <th>Best Score</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.generation }}</td>
+                        <td>{{ log.tested }}</td>
+                        <td class="{{ 'positive' if log.best_score > 5 else ('negative' if log.best_score < 0 else '') }}">
+                            {{ "%.2f"|format(log.best_score) }}
+                        </td>
+                        <td style="color:var(--text-muted);font-size:0.8rem;">{{ log.timestamp }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" style="text-align:center;padding:2rem;color:var(--text-muted);">
+                            No runs logged yet. Start the runner to begin.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ─── Runner Log Tail ────────────────────────────────────────────── -->
+    <div class="chart-container">
+        <h3>Runner Log (last 20 lines)</h3>
+        <div class="log-container">
+            {% for line in log_lines %}
+                <div class="log-line">{{ line }}</div>
+            {% else %}
+                <div class="log-line" style="color:var(--text-muted);">No log output yet. Start runner.py to begin.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Strategy Finder — ATR-based SL/TP • 1% risk compounding • Bybit BTCUSDT 1H 5Y</p>
+    </div>
+</div>
+
+</body>
+</html>

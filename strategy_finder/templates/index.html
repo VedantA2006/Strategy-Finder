@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="30">
+    <title>Strategy Finder — Leaderboard</title>
+    <meta name="description" content="Autonomous trading strategy discovery system — top performing strategies ranked by composite score.">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ─── Navbar ──────────────────────────────────────────────────────────── -->
+<nav class="navbar">
+    <div class="container">
+        <a href="/" class="nav-brand">
+            <span class="logo">⚡ StrategyFinder</span>
+            <span class="tagline">ATR-Based Discovery Engine</span>
+        </a>
+        <ul class="nav-links">
+            <li><a href="/" class="active">Leaderboard</a></li>
+            <li><a href="/live">Live Status</a></li>
+        </ul>
+    </div>
+</nav>
+
+<!-- ─── Page Header ────────────────────────────────────────────────────── -->
+<div class="container">
+    <div class="page-header">
+        <h1>Strategy Leaderboard</h1>
+        <p class="subtitle">Top 20 strategies ranked by composite score • Auto-refreshes every 30s</p>
+    </div>
+
+    <!-- ─── Table ──────────────────────────────────────────────────────── -->
+    <div class="table-container">
+        <table id="leaderboard-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Name</th>
+                    <th>Gen</th>
+                    <th>CAGR %</th>
+                    <th>Win Rate %</th>
+                    <th>Dollar RR</th>
+                    <th>Profit Factor</th>
+                    <th>Max DD %</th>
+                    <th>Sharpe</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in strategies %}
+                <tr class="{{ 'row-positive' if s.metrics.score > 5 else ('row-negative' if s.metrics.score < 0 else '') }}">
+                    <td>
+                        {% if loop.index <= 3 %}
+                            <span class="rank-badge rank-{{ loop.index }}">{{ loop.index }}</span>
+                        {% else %}
+                            {{ loop.index }}
+                        {% endif %}
+                    </td>
+                    <td><a href="/strategy/{{ s.id }}" class="strategy-link">{{ s.name }}</a></td>
+                    <td>{{ s.generation }}</td>
+                    <td class="{{ 'positive' if s.metrics.cagr > 0 else 'negative' }}">
+                        {{ "%.2f"|format(s.metrics.cagr) }}
+                    </td>
+                    <td>{{ "%.1f"|format(s.metrics.win_rate) }}</td>
+                    <td class="{{ 'positive' if s.metrics.dollar_rr >= 1.5 else 'negative' }}">
+                        {{ "%.2f"|format(s.metrics.dollar_rr) }}
+                    </td>
+                    <td>{{ "%.2f"|format(s.metrics.profit_factor) }}</td>
+                    <td class="negative">{{ "%.1f"|format(s.metrics.max_drawdown) }}</td>
+                    <td>{{ "%.2f"|format(s.metrics.sharpe) }}</td>
+                    <td style="font-weight:700;">
+                        <span class="{{ 'positive' if s.metrics.score > 5 else ('negative' if s.metrics.score < 0 else '') }}">
+                            {{ "%.2f"|format(s.metrics.score) }}
+                        </span>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10" style="text-align:center; padding:3rem; color:var(--text-muted);">
+                        No strategies found yet. Start the runner to begin discovery.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <p>Strategy Finder — ATR-based SL/TP • 1% risk compounding • Bybit BTCUSDT 1H 5Y</p>
+    </div>
+</div>
+
+</body>
+</html>

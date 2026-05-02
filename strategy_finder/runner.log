@@ -1,0 +1,151 @@
+2026-05-02 22:18:08,633 [INFO] ============================================================
+2026-05-02 22:18:08,634 [INFO] Strategy Finder — starting discovery loop
+2026-05-02 22:18:08,634 [INFO] ============================================================
+2026-05-02 22:18:08,634 [INFO] Loading / fetching 5y 1h BTCUSDT data …
+2026-05-02 22:18:38,686 [ERROR] Fatal error: 'charmap' codec can't encode character '\u2192' in position 57: character maps to <undefined>
+Traceback (most recent call last):
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 112, in <module>
+    run_forever()
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 43, in run_forever
+    data = load_data()
+           ^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\indicators.py", line 167, in load_data
+    raw = _load_or_fetch()
+          ^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\indicators.py", line 98, in _load_or_fetch
+    df = _fetch_bybit_klines()
+         ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\indicators.py", line 82, in _fetch_bybit_klines
+    print(f"[indicators] Fetched {len(df):,} candles "
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 57: character maps to <undefined>
+2026-05-02 22:19:48,505 [INFO] ============================================================
+2026-05-02 22:19:48,507 [INFO] Strategy Finder — starting discovery loop
+2026-05-02 22:19:48,507 [INFO] ============================================================
+2026-05-02 22:19:48,507 [INFO] Loading / fetching 5y 1h BTCUSDT data ...
+2026-05-02 22:20:20,742 [INFO] Data ready: 43,601 rows
+2026-05-02 22:21:03,929 [INFO] Gen    1 | Tested  20 | Scored   5 | DB:   5 | Top:    12.49
+2026-05-02 22:21:35,189 [INFO] Gen    2 | Tested  20 | Scored   7 | DB:  12 | Top:    12.49
+2026-05-02 22:22:30,049 [INFO] Gen    3 | Tested  20 | Scored   4 | DB:  16 | Top:    12.49
+2026-05-02 22:23:27,278 [INFO] Gen    4 | Tested  20 | Scored   7 | DB:  23 | Top:    12.49
+2026-05-02 22:24:38,430 [INFO] Gen    5 | Tested  25 | Scored   8 | DB:  31 | Top:    12.49
+2026-05-02 22:25:18,525 [INFO] Gen    6 | Tested  25 | Scored   5 | DB:  36 | Top:    12.49
+2026-05-02 22:26:01,744 [INFO] Gen    7 | Tested  20 | Scored   3 | DB:  39 | Top:    12.49
+2026-05-02 22:26:53,297 [INFO] Gen    8 | Tested  25 | Scored   7 | DB:  46 | Top:    12.49
+2026-05-02 22:27:48,064 [INFO] Gen    9 | Tested  25 | Scored   3 | DB:  49 | Top:    12.49
+2026-05-02 22:28:25,165 [INFO] Gen   10 | Tested  25 | Scored   6 | DB:  55 | Top:    12.49
+2026-05-02 22:29:00,104 [INFO] Gen   11 | Tested  25 | Scored   4 | DB:  59 | Top:    12.49
+2026-05-02 22:30:01,549 [INFO] Gen   12 | Tested  25 | Scored   5 | DB:  64 | Top:    12.67
+2026-05-02 22:31:15,690 [INFO] Gen   13 | Tested  25 | Scored   4 | DB:  68 | Top:    12.67
+2026-05-02 22:31:41,204 [INFO] Gen   14 | Tested  20 | Scored   3 | DB:  71 | Top:    12.67
+2026-05-02 22:32:33,374 [INFO] Gen   15 | Tested  20 | Scored   6 | DB:  77 | Top:    12.67
+2026-05-02 22:33:26,747 [INFO] Gen   16 | Tested  25 | Scored   5 | DB:  82 | Top:    12.67
+2026-05-02 22:34:03,852 [INFO] Gen   17 | Tested  20 | Scored   4 | DB:  86 | Top:    12.67
+2026-05-02 22:34:54,666 [INFO] Gen   18 | Tested  25 | Scored   0 | DB:  86 | Top:    12.67
+2026-05-02 22:35:54,182 [INFO] Gen   19 | Tested  25 | Scored   5 | DB:  91 | Top:    12.67
+2026-05-02 22:36:51,407 [INFO] Gen   20 | Tested  25 | Scored   4 | DB:  95 | Top:    12.67
+2026-05-02 22:37:37,139 [INFO] Gen   21 | Tested  25 | Scored   5 | DB: 100 | Top:    12.67
+2026-05-02 22:38:44,000 [INFO] Gen   22 | Tested  25 | Scored   5 | DB: 100 | Top:    12.67
+2026-05-02 22:39:55,117 [INFO] Gen   23 | Tested  20 | Scored   2 | DB: 100 | Top:    12.67
+2026-05-02 22:40:45,738 [INFO] Gen   24 | Tested  25 | Scored   3 | DB: 100 | Top:    12.67
+2026-05-02 22:41:32,481 [INFO] Gen   25 | Tested  25 | Scored   6 | DB: 100 | Top:    12.67
+2026-05-02 22:42:38,750 [INFO] Gen   26 | Tested  25 | Scored   5 | DB: 100 | Top:    12.67
+2026-05-02 22:43:35,071 [INFO] Gen   27 | Tested  20 | Scored   1 | DB: 100 | Top:    12.67
+2026-05-02 22:44:16,451 [INFO] Gen   28 | Tested  25 | Scored   2 | DB: 100 | Top:    12.67
+2026-05-02 22:45:21,570 [INFO] Gen   29 | Tested  25 | Scored   4 | DB: 100 | Top:    12.67
+2026-05-02 22:46:16,641 [INFO] Gen   30 | Tested  25 | Scored   2 | DB: 100 | Top:    12.67
+2026-05-02 22:46:48,505 [INFO] Gen   31 | Tested  25 | Scored   7 | DB: 100 | Top:    12.67
+2026-05-02 22:47:28,886 [INFO] Gen   32 | Tested  20 | Scored   1 | DB: 100 | Top:    12.67
+2026-05-02 22:48:02,855 [INFO] Gen   33 | Tested  20 | Scored   5 | DB: 100 | Top:    12.67
+2026-05-02 22:48:44,099 [INFO] Gen   34 | Tested  25 | Scored   0 | DB: 100 | Top:    12.67
+2026-05-02 22:49:46,921 [INFO] Gen   35 | Tested  25 | Scored   2 | DB: 100 | Top:    12.67
+2026-05-02 22:50:30,354 [INFO] Gen   36 | Tested  25 | Scored   4 | DB: 100 | Top:    12.67
+2026-05-02 22:51:28,480 [INFO] Gen   37 | Tested  25 | Scored   7 | DB: 100 | Top:    13.52
+2026-05-02 22:52:14,823 [INFO] Gen   38 | Tested  25 | Scored   5 | DB: 100 | Top:    13.52
+2026-05-02 22:52:59,518 [INFO] Gen   39 | Tested  25 | Scored   4 | DB: 100 | Top:    13.52
+2026-05-02 22:53:59,140 [INFO] Gen   40 | Tested  25 | Scored   4 | DB: 100 | Top:    13.52
+2026-05-02 22:55:04,420 [INFO] Gen   41 | Tested  25 | Scored   6 | DB: 100 | Top:    14.53
+2026-05-02 22:56:19,946 [INFO] Gen   42 | Tested  25 | Scored   5 | DB: 100 | Top:    14.53
+2026-05-02 22:57:24,324 [INFO] Gen   43 | Tested  20 | Scored   3 | DB: 100 | Top:    14.53
+2026-05-02 22:58:54,852 [INFO] Gen   44 | Tested  25 | Scored   6 | DB: 100 | Top:    14.85
+2026-05-02 23:00:33,710 [INFO] Gen   45 | Tested  25 | Scored   7 | DB: 100 | Top:    14.85
+2026-05-02 23:01:25,192 [INFO] Gen   46 | Tested  25 | Scored   6 | DB: 100 | Top:    15.51
+2026-05-02 23:02:14,530 [INFO] Gen   47 | Tested  20 | Scored   3 | DB: 100 | Top:    15.51
+2026-05-02 23:03:04,760 [INFO] Gen   48 | Tested  25 | Scored   6 | DB: 100 | Top:    15.51
+2026-05-02 23:03:46,758 [INFO] Gen   49 | Tested  25 | Scored   8 | DB: 100 | Top:    15.51
+2026-05-02 23:04:47,200 [INFO] Gen   50 | Tested  25 | Scored  10 | DB: 100 | Top:    15.69
+2026-05-02 23:05:55,996 [INFO] Gen   51 | Tested  25 | Scored   5 | DB: 100 | Top:    15.69
+2026-05-02 23:07:12,006 [INFO] Gen   52 | Tested  25 | Scored  10 | DB: 100 | Top:    16.73
+2026-05-02 23:08:34,967 [INFO] Gen   53 | Tested  25 | Scored   8 | DB: 100 | Top:    16.73
+2026-05-02 23:09:46,849 [INFO] Gen   54 | Tested  25 | Scored   9 | DB: 100 | Top:    16.73
+2026-05-02 23:11:12,033 [INFO] Gen   55 | Tested  25 | Scored   5 | DB: 100 | Top:    16.73
+2026-05-02 23:11:56,391 [INFO] Gen   56 | Tested  20 | Scored   5 | DB: 100 | Top:    16.73
+2026-05-02 23:13:08,924 [INFO] Gen   57 | Tested  25 | Scored   7 | DB: 100 | Top:    16.73
+2026-05-02 23:14:13,913 [INFO] Gen   58 | Tested  25 | Scored   7 | DB: 100 | Top:    16.73
+2026-05-02 23:15:27,896 [INFO] Gen   59 | Tested  25 | Scored   5 | DB: 100 | Top:    16.73
+2026-05-02 23:16:00,381 [INFO] Gen   60 | Tested  20 | Scored   2 | DB: 100 | Top:    16.73
+2026-05-02 23:17:14,602 [INFO] Gen   61 | Tested  25 | Scored   7 | DB: 100 | Top:    16.73
+2026-05-02 23:18:03,500 [INFO] Gen   62 | Tested  20 | Scored   2 | DB: 100 | Top:    16.73
+2026-05-02 23:19:18,371 [INFO] Gen   63 | Tested  25 | Scored   5 | DB: 100 | Top:    17.11
+2026-05-02 23:20:28,540 [INFO] Gen   64 | Tested  25 | Scored  11 | DB: 100 | Top:    17.80
+2026-05-02 23:21:31,250 [INFO] Gen   65 | Tested  25 | Scored   7 | DB: 100 | Top:    17.80
+2026-05-02 23:22:52,577 [INFO] Gen   66 | Tested  25 | Scored   5 | DB: 100 | Top:    17.80
+2026-05-02 23:24:07,752 [INFO] Gen   67 | Tested  25 | Scored   6 | DB: 100 | Top:    17.80
+2026-05-02 23:25:19,367 [INFO] Gen   68 | Tested  25 | Scored   5 | DB: 100 | Top:    19.06
+2026-05-02 23:25:55,363 [INFO] Gen   69 | Tested  25 | Scored   7 | DB: 100 | Top:    19.06
+2026-05-02 23:26:50,013 [INFO] Gen   70 | Tested  25 | Scored   7 | DB: 100 | Top:    19.06
+2026-05-02 23:27:47,320 [INFO] Gen   71 | Tested  25 | Scored   7 | DB: 100 | Top:    19.06
+2026-05-02 23:28:53,129 [INFO] Gen   72 | Tested  25 | Scored   5 | DB: 100 | Top:    19.06
+2026-05-02 23:29:44,433 [INFO] Gen   73 | Tested  20 | Scored   1 | DB: 100 | Top:    19.06
+2026-05-02 23:31:06,138 [INFO] Gen   74 | Tested  25 | Scored   7 | DB: 100 | Top:    19.06
+2026-05-02 23:32:03,854 [INFO] Gen   75 | Tested  25 | Scored   5 | DB: 100 | Top:    19.06
+2026-05-02 23:33:25,629 [INFO] Gen   76 | Tested  25 | Scored   7 | DB: 100 | Top:    19.06
+2026-05-02 23:34:37,081 [INFO] Gen   77 | Tested  25 | Scored   5 | DB: 100 | Top:    19.06
+2026-05-02 23:35:16,619 [INFO] Gen   78 | Tested  20 | Scored   6 | DB: 100 | Top:    19.06
+2026-05-02 23:36:04,017 [INFO] Gen   79 | Tested  20 | Scored   2 | DB: 100 | Top:    19.06
+2026-05-02 23:36:52,763 [INFO] Gen   80 | Tested  20 | Scored   5 | DB: 100 | Top:    19.06
+2026-05-02 23:38:04,418 [INFO] Gen   81 | Tested  25 | Scored   9 | DB: 100 | Top:    19.06
+2026-05-02 23:39:00,694 [INFO] Gen   82 | Tested  20 | Scored   5 | DB: 100 | Top:    19.06
+2026-05-02 23:40:00,404 [INFO] Gen   83 | Tested  25 | Scored   6 | DB: 100 | Top:    21.11
+2026-05-02 23:41:02,247 [INFO] Gen   84 | Tested  20 | Scored   1 | DB: 100 | Top:    21.11
+2026-05-02 23:41:42,533 [INFO] Gen   85 | Tested  20 | Scored   2 | DB: 100 | Top:    21.11
+2026-05-02 23:42:48,233 [INFO] Gen   86 | Tested  25 | Scored   6 | DB: 100 | Top:    21.11
+2026-05-02 23:43:52,352 [INFO] Gen   87 | Tested  20 | Scored   0 | DB: 100 | Top:    21.11
+2026-05-02 23:44:43,428 [INFO] Gen   88 | Tested  25 | Scored   7 | DB: 100 | Top:    21.11
+2026-05-02 23:45:31,368 [INFO] Gen   89 | Tested  25 | Scored  10 | DB: 100 | Top:    21.32
+2026-05-02 23:46:10,007 [INFO] Gen   90 | Tested  20 | Scored   1 | DB: 100 | Top:    21.32
+2026-05-02 23:47:03,463 [INFO] Gen   91 | Tested  25 | Scored   8 | DB: 100 | Top:    23.25
+2026-05-02 23:48:09,379 [INFO] Gen   92 | Tested  25 | Scored   6 | DB: 100 | Top:    23.25
+2026-05-02 23:49:22,889 [INFO] Gen   93 | Tested  25 | Scored   5 | DB: 100 | Top:    23.25
+2026-05-02 23:50:26,880 [INFO] Gen   94 | Tested  25 | Scored   6 | DB: 100 | Top:    23.25
+2026-05-02 23:51:18,772 [INFO] Gen   95 | Tested  25 | Scored   6 | DB: 100 | Top:    23.25
+2026-05-02 23:52:09,129 [INFO] Gen   96 | Tested  25 | Scored   3 | DB: 100 | Top:    23.25
+2026-05-02 23:52:49,302 [INFO] Gen   97 | Tested  20 | Scored   2 | DB: 100 | Top:    23.25
+2026-05-02 23:53:47,367 [INFO] Gen   98 | Tested  20 | Scored   4 | DB: 100 | Top:    23.25
+2026-05-02 23:54:43,240 [INFO] Gen   99 | Tested  20 | Scored   0 | DB: 100 | Top:    23.25
+2026-05-02 23:55:49,741 [INFO] Gen  100 | Tested  25 | Scored   5 | DB: 100 | Top:    23.25
+2026-05-02 23:56:47,048 [INFO] Gen  101 | Tested  25 | Scored   8 | DB: 100 | Top:    23.25
+2026-05-02 23:57:33,863 [INFO] Gen  102 | Tested  25 | Scored   4 | DB: 100 | Top:    23.25
+2026-05-02 23:58:37,601 [INFO] Gen  103 | Tested  25 | Scored   4 | DB: 100 | Top:    23.25
+2026-05-02 23:59:22,809 [INFO] Gen  104 | Tested  25 | Scored   5 | DB: 100 | Top:    23.25
+2026-05-03 00:00:07,101 [INFO] Gen  105 | Tested  20 | Scored   4 | DB: 100 | Top:    23.25
+2026-05-03 00:01:24,178 [INFO] Gen  106 | Tested  25 | Scored   8 | DB: 100 | Top:    23.25
+2026-05-03 00:02:10,588 [INFO] Gen  107 | Tested  20 | Scored   6 | DB: 100 | Top:    23.25
+2026-05-03 00:03:05,286 [INFO] Gen  108 | Tested  25 | Scored   6 | DB: 100 | Top:    23.25
+2026-05-03 00:04:14,534 [INFO] Gen  109 | Tested  25 | Scored   5 | DB: 100 | Top:    23.25
+2026-05-03 00:05:20,176 [INFO] Gen  110 | Tested  25 | Scored  10 | DB: 100 | Top:    23.25
+2026-05-03 00:06:21,929 [INFO] Gen  111 | Tested  25 | Scored   3 | DB: 100 | Top:    23.25
+2026-05-03 00:07:10,322 [INFO] Gen  112 | Tested  25 | Scored   8 | DB: 100 | Top:    23.25
+2026-05-03 00:07:59,547 [INFO] Gen  113 | Tested  20 | Scored   6 | DB: 100 | Top:    23.25
+2026-05-03 00:08:27,075 [INFO] Gen  114 | Tested  20 | Scored   2 | DB: 100 | Top:    23.25
+2026-05-03 00:09:13,507 [INFO] Gen  115 | Tested  25 | Scored   7 | DB: 100 | Top:    23.25
+2026-05-03 00:10:09,506 [INFO] Gen  116 | Tested  25 | Scored   7 | DB: 100 | Top:    23.25
+2026-05-03 00:10:59,958 [INFO] Gen  117 | Tested  25 | Scored   5 | DB: 100 | Top:    23.25
+2026-05-03 00:11:43,331 [INFO] Gen  118 | Tested  25 | Scored   4 | DB: 100 | Top:    23.25
+2026-05-03 00:12:21,199 [INFO] Gen  119 | Tested  25 | Scored   8 | DB: 100 | Top:    23.25
+2026-05-03 00:13:09,683 [INFO] Gen  120 | Tested  20 | Scored   3 | DB: 100 | Top:    23.25
+2026-05-03 00:14:17,228 [INFO] Gen  121 | Tested  25 | Scored   5 | DB: 100 | Top:    23.25
+2026-05-03 00:15:07,083 [INFO] Gen  122 | Tested  25 | Scored   3 | DB: 100 | Top:    23.25
+2026-05-03 00:16:11,368 [INFO] Gen  123 | Tested  25 | Scored   2 | DB: 100 | Top:    23.25
