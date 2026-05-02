@@ -3,19 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="30">
-    <title>Strategy Finder — Leaderboard</title>
-    <meta name="description" content="Autonomous trading strategy discovery system — top performing strategies ranked by composite score.">
+    <title>Strategy Finder — Professional Leaderboard</title>
+    <meta name="description" content="Autonomous trading strategy discovery system">
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
-<!-- ─── Navbar ──────────────────────────────────────────────────────────── -->
 <nav class="navbar">
     <div class="container">
         <a href="/" class="nav-brand">
-            <span class="logo">⚡ StrategyFinder</span>
-            <span class="tagline">ATR-Based Discovery Engine</span>
+            <span class="logo">StrategyFinder</span>
         </a>
         <ul class="nav-links">
             <li><a href="/" class="active">Leaderboard</a></li>
@@ -24,33 +22,45 @@
     </div>
 </nav>
 
-<!-- ─── Page Header ────────────────────────────────────────────────────── -->
 <div class="container">
     <div class="page-header">
-        <h1>Strategy Leaderboard</h1>
-        <p class="subtitle">Top 20 strategies ranked by composite score • Auto-refreshes every 30s</p>
+        <div>
+            <h1>Global Leaderboard</h1>
+            <p class="subtitle" style="color:var(--text-muted); margin-top:0.5rem;">Top strategies ranked by robustness composite score</p>
+        </div>
+        
+        <div class="header-filters">
+            <div class="sparkline-container" style="margin-right:2rem;">
+                <canvas id="sparkline"></canvas>
+            </div>
+            
+            <select class="filter-select" onchange="window.location.href='/?asset='+this.value">
+                <option value="">All Assets</option>
+                <option value="BTCUSDT" {% if current_asset == 'BTCUSDT' %}selected{% endif %}>BTCUSDT</option>
+                <option value="ETHUSDT" {% if current_asset == 'ETHUSDT' %}selected{% endif %}>ETHUSDT</option>
+                <option value="SOLUSDT" {% if current_asset == 'SOLUSDT' %}selected{% endif %}>SOLUSDT</option>
+            </select>
+        </div>
     </div>
 
-    <!-- ─── Table ──────────────────────────────────────────────────────── -->
     <div class="table-container">
-        <table id="leaderboard-table">
+        <table>
             <thead>
                 <tr>
                     <th>Rank</th>
+                    <th>Asset</th>
                     <th>Name</th>
-                    <th>Gen</th>
+                    <th>WF Ratio</th>
                     <th>CAGR %</th>
-                    <th>Win Rate %</th>
-                    <th>Dollar RR</th>
-                    <th>Profit Factor</th>
-                    <th>Max DD %</th>
-                    <th>Sharpe</th>
+                    <th>MC DD95%</th>
+                    <th>Win %</th>
+                    <th>TFs</th>
                     <th>Score</th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in strategies %}
-                <tr class="{{ 'row-positive' if s.metrics.score > 5 else ('row-negative' if s.metrics.score < 0 else '') }}">
+                <tr>
                     <td>
                         {% if loop.index <= 3 %}
                             <span class="rank-badge rank-{{ loop.index }}">{{ loop.index }}</span>
@@ -58,39 +68,74 @@
                             {{ loop.index }}
                         {% endif %}
                     </td>
+                    <td style="color:var(--accent-blue);">{{ s.asset }}</td>
                     <td><a href="/strategy/{{ s.id }}" class="strategy-link">{{ s.name }}</a></td>
-                    <td>{{ s.generation }}</td>
-                    <td class="{{ 'positive' if s.metrics.cagr > 0 else 'negative' }}">
-                        {{ "%.2f"|format(s.metrics.cagr) }}
+                    <td class="{{ 'positive' if s.walk_forward_ratio > 0.8 else ('negative' if s.walk_forward_ratio < 0.6 else '') }}">
+                        {{ "%.2f"|format(s.walk_forward_ratio) }}
                     </td>
+                    <td class="positive">{{ "%.1f"|format(s.metrics.cagr) }}</td>
+                    <td class="negative">{{ "%.1f"|format(s.mc_drawdown_p95) }}</td>
                     <td>{{ "%.1f"|format(s.metrics.win_rate) }}</td>
-                    <td class="{{ 'positive' if s.metrics.dollar_rr >= 1.5 else 'negative' }}">
-                        {{ "%.2f"|format(s.metrics.dollar_rr) }}
-                    </td>
-                    <td>{{ "%.2f"|format(s.metrics.profit_factor) }}</td>
-                    <td class="negative">{{ "%.1f"|format(s.metrics.max_drawdown) }}</td>
-                    <td>{{ "%.2f"|format(s.metrics.sharpe) }}</td>
-                    <td style="font-weight:700;">
-                        <span class="{{ 'positive' if s.metrics.score > 5 else ('negative' if s.metrics.score < 0 else '') }}">
-                            {{ "%.2f"|format(s.metrics.score) }}
-                        </span>
+                    <td>{{ s.n_timeframes_used }}</td>
+                    <td style="font-weight:700; color:var(--text-primary);">
+                        {{ "%.2f"|format(s.metrics.score) }}
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="10" style="text-align:center; padding:3rem; color:var(--text-muted);">
-                        No strategies found yet. Start the runner to begin discovery.
+                    <td colspan="9" style="text-align:center; padding:3rem; color:var(--text-muted);">
+                        No strategies pass the robustness gates yet.
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-
-    <div class="footer">
-        <p>Strategy Finder — ATR-based SL/TP • 1% risk compounding • Bybit BTCUSDT 1H 5Y</p>
-    </div>
 </div>
 
+<script id="spark-labels" type="application/json">{{ spark_labels | safe }}</script>
+<script id="spark-best" type="application/json">{{ spark_best | safe }}</script>
+<script id="spark-mean" type="application/json">{{ spark_mean | safe }}</script>
+
+<script>
+    // Sparkline Chart
+    const ctx = document.getElementById('sparkline').getContext('2d');
+    const labels = JSON.parse(document.getElementById('spark-labels').textContent);
+    const best = JSON.parse(document.getElementById('spark-best').textContent);
+    const mean = JSON.parse(document.getElementById('spark-mean').textContent);
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    data: best,
+                    borderColor: '#10b981',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.3
+                },
+                {
+                    data: mean,
+                    borderColor: 'rgba(148, 163, 184, 0.3)',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+                x: { display: false },
+                y: { display: false }
+            },
+            layout: { padding: 5 }
+        }
+    });
+</script>
 </body>
 </html>

@@ -4,19 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="10">
-    <title>Strategy Finder — Live Status</title>
-    <meta name="description" content="Real-time runner status for the autonomous strategy discovery engine.">
+    <title>Live Runner Status</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
-<!-- ─── Navbar ──────────────────────────────────────────────────────────── -->
 <nav class="navbar">
     <div class="container">
-        <a href="/" class="nav-brand">
-            <span class="logo">⚡ StrategyFinder</span>
-            <span class="tagline">ATR-Based Discovery Engine</span>
-        </a>
+        <a href="/" class="nav-brand"><span class="logo">StrategyFinder</span></a>
         <ul class="nav-links">
             <li><a href="/">Leaderboard</a></li>
             <li><a href="/live" class="active">Live Status</a></li>
@@ -25,103 +21,113 @@
 </nav>
 
 <div class="container">
-    <!-- ─── Header ─────────────────────────────────────────────────────── -->
     <div class="page-header">
-        <h1><span class="pulse-dot"></span> Runner Status</h1>
-        <p class="subtitle">Auto-refreshes every 10 seconds</p>
-    </div>
-
-    <!-- ─── Stats Cards ────────────────────────────────────────────────── -->
-    <div class="stats-bar">
-        <div class="stat-card">
-            <div class="label">Total Strategies</div>
-            <div class="value blue">{{ total }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Generations Today</div>
-            <div class="value amber">{{ stats.runs }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Tested Today</div>
-            <div class="value">{{ stats.total_tested }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Best Score Today</div>
-            <div class="value green">{{ "%.2f"|format(stats.best_today) }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">All-Time Best</div>
-            <div class="value green">
-                {% if top1 %}
-                    {{ "%.2f"|format(top1.metrics.score) }}
-                {% else %}
-                    —
-                {% endif %}
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Best Strategy</div>
-            <div class="value" style="font-size:1rem;">
-                {% if top1 %}
-                    <a href="/strategy/{{ top1.id }}" class="strategy-link">{{ top1.name }}</a>
-                {% else %}
-                    —
-                {% endif %}
-            </div>
+        <div>
+            <h1><span class="pulse-dot"></span> Runner Status</h1>
+            <p class="subtitle" style="color:var(--text-muted); margin-top:0.5rem;">Auto-refreshes every 10s</p>
         </div>
     </div>
 
-    <!-- ─── Recent Run Log (from DB) ───────────────────────────────────── -->
-    <div class="chart-container">
-        <h3>Recent Generations</h3>
-        <div class="table-container" style="box-shadow:none;border:none;">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Generation</th>
-                        <th>Tested</th>
-                        <th>Best Score</th>
-                        <th>Timestamp</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for log in logs %}
-                    <tr>
-                        <td>{{ log.generation }}</td>
-                        <td>{{ log.tested }}</td>
-                        <td class="{{ 'positive' if log.best_score > 5 else ('negative' if log.best_score < 0 else '') }}">
-                            {{ "%.2f"|format(log.best_score) }}
-                        </td>
-                        <td style="color:var(--text-muted);font-size:0.8rem;">{{ log.timestamp }}</td>
-                    </tr>
+    <div class="charts-grid">
+        <div style="display:flex; flex-direction:column; gap:1.5rem;">
+            <!-- Stats -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+                <div class="stat-card">
+                    <div class="label">Throughput</div>
+                    <div class="value">{{ throughput }} <span style="font-size:1rem;color:var(--text-muted);">strats/hr</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Tested Today</div>
+                    <div class="value">{{ stats.total_tested }}</div>
+                </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="chart-container">
+                <h3>Score over Generations</h3>
+                <canvas id="genChart" height="100"></canvas>
+            </div>
+            
+            <!-- Log -->
+            <div class="chart-container">
+                <h3>Log Tail</h3>
+                <div class="log-container">
+                    {% for line in log_lines %}
+                    <div class="log-line">{{ line }}</div>
                     {% else %}
-                    <tr>
-                        <td colspan="4" style="text-align:center;padding:2rem;color:var(--text-muted);">
-                            No runs logged yet. Start the runner to begin.
-                        </td>
-                    </tr>
+                    <div class="log-line">No logs yet...</div>
                     {% endfor %}
-                </tbody>
-            </table>
+                </div>
+            </div>
         </div>
-    </div>
 
-    <!-- ─── Runner Log Tail ────────────────────────────────────────────── -->
-    <div class="chart-container">
-        <h3>Runner Log (last 20 lines)</h3>
-        <div class="log-container">
-            {% for line in log_lines %}
-                <div class="log-line">{{ line }}</div>
-            {% else %}
-                <div class="log-line" style="color:var(--text-muted);">No log output yet. Start runner.py to begin.</div>
-            {% endfor %}
+        <div style="display:flex; flex-direction:column; gap:1.5rem;">
+            <!-- Diversity Gauge -->
+            <div class="chart-container gauge-container">
+                <h3>Population Diversity</h3>
+                <div class="gauge-value {{ 'positive' if latest_div > 0.8 else ('negative' if latest_div < 0.6 else '') }}">
+                    {{ "%.0f"|format(latest_div * 100) }}%
+                </div>
+                <div style="color:var(--text-muted); font-size:0.8rem; margin-top:0.5rem;">
+                    Target > 60%
+                </div>
+            </div>
+
+            <!-- Best Strat -->
+            <div class="chart-container">
+                <h3>All-Time Best</h3>
+                {% if top1 %}
+                <div style="margin-bottom:1rem;">
+                    <a href="/strategy/{{ top1.id }}" class="strategy-link" style="font-size:1.2rem;">{{ top1.name }}</a>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; font-family:'Fira Code'; font-size:0.9rem;">
+                    <span style="color:var(--text-muted);">Score</span>
+                    <span class="positive" style="font-weight:600;">{{ "%.2f"|format(top1.metrics.score) }}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-family:'Fira Code'; font-size:0.9rem;">
+                    <span style="color:var(--text-muted);">CAGR</span>
+                    <span>{{ "%.1f"|format(top1.metrics.cagr) }}%</span>
+                </div>
+                {% else %}
+                <div style="color:var(--text-muted);">None yet</div>
+                {% endif %}
+            </div>
         </div>
-    </div>
-
-    <div class="footer">
-        <p>Strategy Finder — ATR-based SL/TP • 1% risk compounding • Bybit BTCUSDT 1H 5Y</p>
     </div>
 </div>
 
+<script id="chart-labels" type="application/json">{{ chart_labels | safe }}</script>
+<script id="chart-best" type="application/json">{{ chart_best | safe }}</script>
+
+<script>
+    const ctx = document.getElementById('genChart').getContext('2d');
+    const labels = JSON.parse(document.getElementById('chart-labels').textContent);
+    const best = JSON.parse(document.getElementById('chart-best').textContent);
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Best Score',
+                data: best,
+                borderColor: '#8b5cf6',
+                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                fill: true,
+                borderWidth: 2,
+                pointRadius: 2,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { font: {family: 'Fira Code'} } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { font: {family: 'Fira Code'} } }
+            }
+        }
+    });
+</script>
 </body>
 </html>

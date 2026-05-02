@@ -2,8 +2,6 @@ pandas
 numpy
 requests
 ta
-matplotlib
-flask
 scikit-learn
-python-dotenv
+flask
 pyarrow

@@ -4,19 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ s.name }} — Strategy Detail</title>
-    <meta name="description" content="Detailed backtest metrics and equity curve for strategy {{ s.name }}.">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
-<!-- ─── Navbar ──────────────────────────────────────────────────────────── -->
 <nav class="navbar">
     <div class="container">
-        <a href="/" class="nav-brand">
-            <span class="logo">⚡ StrategyFinder</span>
-            <span class="tagline">ATR-Based Discovery Engine</span>
-        </a>
+        <a href="/" class="nav-brand"><span class="logo">StrategyFinder</span></a>
         <ul class="nav-links">
             <li><a href="/">Leaderboard</a></li>
             <li><a href="/live">Live Status</a></li>
@@ -25,161 +20,181 @@
 </nav>
 
 <div class="container">
-    <!-- ─── Header ─────────────────────────────────────────────────────── -->
-    <div class="page-header">
-        <h1>{{ s.name }}</h1>
-        <p class="subtitle">Generation {{ s.generation }} • ID: {{ s.id }}</p>
+    <div class="page-header" style="align-items:center;">
+        <div>
+            <h1>{{ s.name }}</h1>
+            <div style="margin-top:0.5rem;">
+                <span class="badge">{{ s.asset }}</span>
+                <span class="badge" style="background:rgba(139,92,246,0.2);color:#8b5cf6;">Complexity: {{ s.condition_complexity }}</span>
+                <span class="badge" style="background:rgba(245,158,11,0.2);color:#f59e0b;">TFs: {{ s.n_timeframes_used }}</span>
+                <span style="color:var(--text-muted); font-size:0.8rem; margin-left:1rem;">Gen {{ s.generation }}</span>
+            </div>
+        </div>
+        <button class="btn btn-primary" onclick="exportCode('{{ s.id }}')">
+            <span>&lt;/&gt;</span> Export to python
+        </button>
     </div>
 
-    <!-- ─── Metric Cards ───────────────────────────────────────────────── -->
+    <!-- Metrics -->
     <div class="metric-grid">
         <div class="metric-card">
-            <div class="metric-label">Total Return</div>
-            <div class="metric-value {{ 'positive' if s.metrics.total_return_pct > 0 else 'negative' }}">
-                {{ "%.2f"|format(s.metrics.total_return_pct) }}%
-            </div>
+            <div class="metric-label">Composite Score</div>
+            <div class="metric-value">{{ "%.2f"|format(s.metrics.score) }}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Walk-Forward Ratio</div>
+            <div class="metric-value {{ 'positive' if s.walk_forward_ratio > 0.8 else 'negative' }}">{{ "%.2f"|format(s.walk_forward_ratio) }}</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">CAGR</div>
-            <div class="metric-value {{ 'positive' if s.metrics.cagr > 0 else 'negative' }}">
-                {{ "%.2f"|format(s.metrics.cagr) }}%
-            </div>
+            <div class="metric-value positive">{{ "%.1f"|format(s.metrics.cagr) }}%</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">MC Drawdown 95%</div>
+            <div class="metric-value negative">{{ "%.1f"|format(s.mc_drawdown_p95) }}%</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">Win Rate</div>
             <div class="metric-value">{{ "%.1f"|format(s.metrics.win_rate) }}%</div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Dollar RR</div>
-            <div class="metric-value {{ 'positive' if s.metrics.dollar_rr >= 1.5 else 'negative' }}">
-                {{ "%.2f"|format(s.metrics.dollar_rr) }}
+            <div class="metric-label">Max DD Duration</div>
+            <div class="metric-value">{{ s.metrics.max_dd_duration }} bars</div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+        <!-- Main Charts -->
+        <div style="display:flex; flex-direction:column; gap:1.5rem;">
+            <div class="chart-container">
+                <h3>Equity Curve</h3>
+                <canvas id="equityChart" height="80"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Drawdown</h3>
+                <canvas id="ddChart" height="50"></canvas>
             </div>
         </div>
-        <div class="metric-card">
-            <div class="metric-label">Profit Factor</div>
-            <div class="metric-value">{{ "%.2f"|format(s.metrics.profit_factor) }}</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Max Drawdown</div>
-            <div class="metric-value negative">{{ "%.1f"|format(s.metrics.max_drawdown) }}%</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Sharpe Ratio</div>
-            <div class="metric-value">{{ "%.2f"|format(s.metrics.sharpe) }}</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Trades / Month</div>
-            <div class="metric-value">{{ "%.1f"|format(s.metrics.avg_trades_per_month) }}</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Composite Score</div>
-            <div class="metric-value {{ 'positive' if s.metrics.score > 5 else ('negative' if s.metrics.score < 0 else '') }}" style="font-size:2rem;">
-                {{ "%.2f"|format(s.metrics.score) }}
+        
+        <!-- Sidebar Panels -->
+        <div style="display:flex; flex-direction:column; gap:1.5rem;">
+            <!-- Regime Breakdown -->
+            <div class="chart-container">
+                <h3>Regime Performance (Win %)</h3>
+                <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                    <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                        <span>🐂 Bull</span>
+                        <span class="metric-value">{{ "%.1f"|format(s.regime_bull_wr) }}%</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                        <span>🐻 Bear</span>
+                        <span class="metric-value">{{ "%.1f"|format(s.regime_bear_wr) }}%</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; padding:0.5rem 0;">
+                        <span>🦀 Sideways</span>
+                        <span class="metric-value">{{ "%.1f"|format(s.regime_sideways_wr) }}%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monthly Heatmap -->
+            <div class="chart-container">
+                <h3>Monthly Returns ($)</h3>
+                <div class="heatmap">
+                    {% for m in monthly_returns[-12:] %}
+                    <div class="heatmap-cell {{ 'up' if m.pnl > 0 else 'down' }}">
+                        <div>{{ m.month.split('-')[1] }}/{{ m.month.split('-')[0][2:] }}</div>
+                        <div style="font-weight:600; margin-top:2px;">{{ "%.0f"|format(m.pnl) }}</div>
+                    </div>
+                    {% else %}
+                    <div style="grid-column: span 3; color:var(--text-muted); font-size:0.8rem;">No monthly data</div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- ─── Equity Curve Chart ─────────────────────────────────────────── -->
-    <div class="chart-container">
-        <h3>Equity Curve</h3>
-        <canvas id="equityChart" height="100"></canvas>
-    </div>
-
-    <!-- ─── Conditions ─────────────────────────────────────────────────── -->
-    <div class="condition-block">
-        <div class="condition-label">Buy Conditions</div>
-        <code id="buy-cond">{{ s.buy_conditions }}</code>
-    </div>
-    <div class="condition-block">
-        <div class="condition-label">Sell Conditions</div>
-        <code id="sell-cond">{{ s.sell_conditions }}</code>
-    </div>
-
-    <!-- ─── Parameters ─────────────────────────────────────────────────── -->
-    <div class="condition-block" style="margin-top:1rem;">
-        <div class="condition-label">ATR Parameters</div>
-        <code id="params-text">sl_mult: {{ s.sl_mult }} | rr_ratio: {{ s.rr_ratio }} | cooldown: {{ s.cooldown }} | atr_gate: {{ s.atr_gate }}</code>
-        <br><br>
-        <button class="btn btn-primary" onclick="copyParams()" id="copy-btn">📋 Copy Params</button>
-    </div>
-
-    <div class="footer">
-        <a href="/" style="color:var(--accent-blue);text-decoration:none;">← Back to Leaderboard</a>
+    <!-- Logic -->
+    <div class="chart-container" style="margin-bottom:4rem;">
+        <h3>Strategy Logic</h3>
+        
+        <div style="margin-bottom:1rem; font-family:'Fira Code'; font-size:0.9rem; color:var(--text-secondary);">
+            <span style="color:var(--text-primary);">sl_mult:</span> {{ s.sl_mult }} | 
+            <span style="color:var(--text-primary);">rr_ratio:</span> {{ s.rr_ratio }} | 
+            <span style="color:var(--text-primary);">cooldown:</span> {{ s.cooldown }} | 
+            <span style="color:var(--text-primary);">atr_gate:</span> {{ s.atr_gate }}
+        </div>
+        
+        <div class="condition-block">
+            <div style="color:var(--accent-blue); font-size:0.7rem; text-transform:uppercase; margin-bottom:0.5rem;">Buy Conditions</div>
+            <code>{{ s.buy_conditions }}</code>
+        </div>
+        <div class="condition-block">
+            <div style="color:var(--accent-red); font-size:0.7rem; text-transform:uppercase; margin-bottom:0.5rem;">Sell Conditions</div>
+            <code>{{ s.sell_conditions }}</code>
+        </div>
     </div>
 </div>
 
-<!-- ─── Toast ──────────────────────────────────────────────────────────── -->
-<div class="toast" id="toast">Copied to clipboard!</div>
+<div class="toast" id="toast">Code exported and copied to clipboard!</div>
 
-<script id="equity-data" type="application/json">
-{{ equity_json | safe }}
-</script>
+<script id="equity-data" type="application/json">{{ equity_json | safe }}</script>
+<script id="dd-data" type="application/json">{{ dd_json | safe }}</script>
+
 <script>
-// ── Equity Curve Chart ──────────────────────────────────────────────────
-const equityData = JSON.parse(document.getElementById('equity-data').textContent);
-const ctx = document.getElementById('equityChart').getContext('2d');
+    // Data
+    const equityData = JSON.parse(document.getElementById('equity-data').textContent);
+    const ddData = JSON.parse(document.getElementById('dd-data').textContent);
+    const labels = equityData.map((_, i) => i);
 
-const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
-gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+    // Equity Chart
+    const ctxEq = document.getElementById('equityChart').getContext('2d');
+    const gradEq = ctxEq.createLinearGradient(0, 0, 0, 400);
+    gradEq.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+    gradEq.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
 
-new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: equityData.map((_, i) => i),
-        datasets: [{
-            label: 'Equity ($)',
-            data: equityData,
-            borderColor: '#3b82f6',
-            backgroundColor: gradient,
-            borderWidth: 2,
-            fill: true,
-            pointRadius: 0,
-            tension: 0.3,
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                backgroundColor: 'rgba(17, 24, 39, 0.95)',
-                titleFont: { family: 'JetBrains Mono' },
-                bodyFont: { family: 'JetBrains Mono' },
-                borderColor: 'rgba(255,255,255,0.1)',
-                borderWidth: 1,
-                callbacks: {
-                    label: (ctx) => `$${ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2})}`,
-                }
-            }
-        },
-        scales: {
-            x: {
-                display: false,
-            },
-            y: {
-                grid: { color: 'rgba(255,255,255,0.05)' },
-                ticks: {
-                    color: '#64748b',
-                    font: { family: 'JetBrains Mono', size: 11 },
-                    callback: (v) => '$' + v.toLocaleString(),
-                }
-            }
-        },
-        interaction: { intersect: false, mode: 'index' },
-    }
-});
-
-// ── Copy Params ─────────────────────────────────────────────────────────
-function copyParams() {
-    const text = document.getElementById('params-text').textContent;
-    navigator.clipboard.writeText(text).then(() => {
-        const toast = document.getElementById('toast');
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2000);
+    new Chart(ctxEq, {
+        type: 'line',
+        data: { labels, datasets: [{ data: equityData, borderColor: '#3b82f6', backgroundColor: gradEq, fill: true, pointRadius: 0, tension: 0.2 }] },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { font: { family: 'Fira Code' } } } },
+            interaction: { intersect: false, mode: 'index' }
+        }
     });
-}
-</script>
 
+    // Drawdown Chart
+    const ctxDd = document.getElementById('ddChart').getContext('2d');
+    const gradDd = ctxDd.createLinearGradient(0, 0, 0, 200);
+    gradDd.addColorStop(0, 'rgba(239, 68, 68, 0.0)');
+    gradDd.addColorStop(1, 'rgba(239, 68, 68, 0.3)');
+
+    new Chart(ctxDd, {
+        type: 'line',
+        data: { labels, datasets: [{ data: ddData, borderColor: '#ef4444', backgroundColor: gradDd, fill: true, pointRadius: 0, tension: 0.2 }] },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, max: 0, ticks: { font: { family: 'Fira Code' }, callback: v => v+'%' } } },
+            interaction: { intersect: false, mode: 'index' }
+        }
+    });
+
+    // Export Action
+    async function exportCode(id) {
+        try {
+            const res = await fetch(`/api/export/${id}`);
+            const data = await res.json();
+            await navigator.clipboard.writeText(data.code);
+            const toast = document.getElementById('toast');
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        } catch (e) {
+            alert("Export failed");
+        }
+    }
+</script>
 </body>
 </html>

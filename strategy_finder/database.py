@@ -1,8 +1,10 @@
 """
-database.py — SQLite persistence for discovered strategies.
+database.py — SQLite persistence for Strategy Finder.
 
-Stores all strategy params, conditions, and backtest metrics.
-Provides leaderboard queries, pruning, and run logging.
+Features:
+  - Extended schema for multi-asset and robustness metrics.
+  - Hall of Fame table to permanently protect top strategies.
+  - Generation stats table with diversity tracking.
 """
 
 from __future__ import annotations
@@ -34,27 +36,56 @@ class StrategyDatabase:
                 id              TEXT PRIMARY KEY,
                 name            TEXT,
                 generation      INTEGER,
+                asset           TEXT,
                 params_json     TEXT,
                 buy_conditions  TEXT,
                 sell_conditions TEXT,
+                
+                -- Standard Backtest Metrics
                 total_return    REAL,
                 cagr            REAL,
                 win_rate        REAL,
                 dollar_rr       REAL,
                 profit_factor   REAL,
                 max_drawdown    REAL,
+                max_dd_duration INTEGER,
                 sharpe          REAL,
                 trades_per_month REAL,
                 score           REAL,
+                
+                -- Robustness Metrics
+                walk_forward_ratio REAL,
+                mc_drawdown_p95 REAL,
+                parameter_sensitivity REAL,
+                regime_bull_wr REAL,
+                regime_bear_wr REAL,
+                regime_sideways_wr REAL,
+                validation_cagr REAL,
+                
+                -- Complexity Metrics
+                condition_complexity INTEGER,
+                n_timeframes_used INTEGER,
+                
+                -- JSON Blobs
                 equity_curve    TEXT,
+                monthly_returns_json TEXT,
+                trade_log_json  TEXT,
+                
                 created_at      TEXT
             );
 
-            CREATE TABLE IF NOT EXISTS run_log (
+            CREATE TABLE IF NOT EXISTS hall_of_fame (
+                id TEXT PRIMARY KEY,
+                added_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS generation_stats (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 generation  INTEGER,
                 tested      INTEGER,
                 best_score  REAL,
+                mean_score  REAL,
+                diversity   REAL,
                 timestamp   TEXT
             );
         """)
@@ -73,26 +104,72 @@ class StrategyDatabase:
         }
         self.conn.execute("""
             INSERT OR REPLACE INTO strategies
-            (id, name, generation, params_json, buy_conditions, sell_conditions,
+            (id, name, generation, asset, params_json, buy_conditions, sell_conditions,
              total_return, cagr, win_rate, dollar_rr, profit_factor,
-             max_drawdown, sharpe, trades_per_month, score, equity_curve, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             max_drawdown, max_dd_duration, sharpe, trades_per_month, score,
+             walk_forward_ratio, mc_drawdown_p95, parameter_sensitivity,
+             regime_bull_wr, regime_bear_wr, regime_sideways_wr, validation_cagr,
+             condition_complexity, n_timeframes_used,
+             equity_curve, monthly_returns_json, trade_log_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?)
         """, (
-            s.id, s.name, s.generation,
+            s.id, s.name, s.generation, s.asset,
             json.dumps(params),
             s.buy_conditions, s.sell_conditions,
+            
             m.get("total_return_pct", 0),
             m.get("cagr", 0),
             m.get("win_rate", 0),
             m.get("dollar_rr", 0),
             m.get("profit_factor", 0),
             m.get("max_drawdown", 0),
+            m.get("max_dd_duration", 0),
             m.get("sharpe", 0),
             m.get("avg_trades_per_month", 0),
             m.get("score", -999),
+            
+            s.walk_forward_ratio,
+            s.mc_drawdown_p95,
+            s.parameter_sensitivity,
+            s.regime_bull_wr,
+            s.regime_bear_wr,
+            s.regime_sideways_wr,
+            s.validation_cagr,
+            
+            s.condition_complexity,
+            s.n_timeframes_used,
+            
             json.dumps(m.get("equity_curve", [])),
+            s.monthly_returns_json,
+            s.trade_log_json,
             datetime.datetime.utcnow().isoformat(),
         ))
+        self.conn.commit()
+
+        # Check if it should be in Hall of Fame (top 20)
+        self._update_hall_of_fame()
+
+    def _update_hall_of_fame(self) -> None:
+        """Maintain top 20 all-time highest scoring valid strategies."""
+        # Get top 20
+        rows = self.conn.execute("""
+            SELECT id FROM strategies 
+            WHERE score > -999 
+            ORDER BY score DESC LIMIT 20
+        """).fetchall()
+        top_ids = [r["id"] for r in rows]
+
+        # Insert new ones
+        for strat_id in top_ids:
+            self.conn.execute("""
+                INSERT OR IGNORE INTO hall_of_fame (id, added_at)
+                VALUES (?, ?)
+            """, (strat_id, datetime.datetime.utcnow().isoformat()))
+        
+        # We NEVER remove from Hall of Fame per requirements!
         self.conn.commit()
 
     def get(self, strategy_id: str) -> Optional[Strategy]:
@@ -104,11 +181,17 @@ class StrategyDatabase:
             return None
         return self._row_to_strategy(row)
 
-    def top_n(self, n: int = 20) -> list[Strategy]:
+    def top_n(self, n: int = 20, asset: str = None) -> list[Strategy]:
         """Return top N valid strategies ordered by score descending."""
-        rows = self.conn.execute(
-            "SELECT * FROM strategies WHERE score > -999 AND max_drawdown <= 10 AND win_rate >= 50 ORDER BY score DESC LIMIT ?", (n,)
-        ).fetchall()
+        query = "SELECT * FROM strategies WHERE score > -999"
+        params = []
+        if asset:
+            query += " AND asset = ?"
+            params.append(asset)
+        query += " ORDER BY score DESC LIMIT ?"
+        params.append(n)
+        
+        rows = self.conn.execute(query, params).fetchall()
         return [self._row_to_strategy(r) for r in rows]
 
     def top1(self) -> Optional[Strategy]:
@@ -122,28 +205,32 @@ class StrategyDatabase:
         return row[0]
 
     def keep_top(self, n: int = 100) -> None:
-        """Prune the database, keeping only the top N valid strategies."""
+        """
+        Prune the database, keeping only the top N valid strategies,
+        BUT never delete any strategy that is in the Hall of Fame.
+        """
         self.conn.execute(f"""
             DELETE FROM strategies
             WHERE id NOT IN (
-                SELECT id FROM strategies WHERE score > -999 AND max_drawdown <= 10 AND win_rate >= 50 ORDER BY score DESC LIMIT ?
+                SELECT id FROM strategies WHERE score > -999 ORDER BY score DESC LIMIT ?
             )
+            AND id NOT IN (SELECT id FROM hall_of_fame)
         """, (n,))
         self.conn.commit()
 
     # ── Run logging ──────────────────────────────────────────────────────
 
-    def log_run(self, generation: int, tested: int, best_score: float) -> None:
+    def log_run(self, generation: int, tested: int, best_score: float, mean_score: float, diversity: float) -> None:
         self.conn.execute("""
-            INSERT INTO run_log (generation, tested, best_score, timestamp)
-            VALUES (?, ?, ?, ?)
-        """, (generation, tested, best_score,
+            INSERT INTO generation_stats (generation, tested, best_score, mean_score, diversity, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (generation, tested, best_score, mean_score, diversity,
               datetime.datetime.utcnow().isoformat()))
         self.conn.commit()
 
     def recent_logs(self, n: int = 20) -> list[dict]:
         rows = self.conn.execute(
-            "SELECT * FROM run_log ORDER BY id DESC LIMIT ?", (n,)
+            "SELECT * FROM generation_stats ORDER BY id DESC LIMIT ?", (n,)
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -153,7 +240,7 @@ class StrategyDatabase:
         row = self.conn.execute("""
             SELECT COUNT(*) as runs, SUM(tested) as total_tested,
                    MAX(best_score) as best_today
-            FROM run_log WHERE timestamp >= ?
+            FROM generation_stats WHERE timestamp >= ?
         """, (today,)).fetchone()
         return {
             "runs": row["runs"] or 0,
@@ -172,12 +259,26 @@ class StrategyDatabase:
             id=row["id"],
             name=row["name"],
             generation=row["generation"],
+            asset=row["asset"],
             sl_mult=params.get("sl_mult", 1.5),
             rr_ratio=params.get("rr_ratio", 3.0),
             cooldown=params.get("cooldown", 3),
             atr_gate=params.get("atr_gate", 0.001),
             buy_conditions=row["buy_conditions"],
             sell_conditions=row["sell_conditions"],
+            
+            walk_forward_ratio=row["walk_forward_ratio"],
+            mc_drawdown_p95=row["mc_drawdown_p95"],
+            parameter_sensitivity=row["parameter_sensitivity"],
+            regime_bull_wr=row["regime_bull_wr"],
+            regime_bear_wr=row["regime_bear_wr"],
+            regime_sideways_wr=row["regime_sideways_wr"],
+            validation_cagr=row["validation_cagr"],
+            condition_complexity=row["condition_complexity"],
+            n_timeframes_used=row["n_timeframes_used"],
+            monthly_returns_json=row["monthly_returns_json"],
+            trade_log_json=row["trade_log_json"],
+            
             metrics={
                 "total_return_pct":     row["total_return"],
                 "cagr":                 row["cagr"],
@@ -185,6 +286,7 @@ class StrategyDatabase:
                 "dollar_rr":            row["dollar_rr"],
                 "profit_factor":        row["profit_factor"],
                 "max_drawdown":         row["max_drawdown"],
+                "max_dd_duration":      row["max_dd_duration"],
                 "sharpe":               row["sharpe"],
                 "avg_trades_per_month": row["trades_per_month"],
                 "score":                row["score"],
