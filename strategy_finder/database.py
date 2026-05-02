@@ -20,7 +20,7 @@ from typing import Optional
 from pymongo import MongoClient, DESCENDING, ASCENDING
 from strategy import Strategy
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://geminivedant5_db_user:Vedant06@ac-g3mnn9n-shard-00-00.gg0xqcv.mongodb.net:27017,ac-g3mnn9n-shard-00-01.gg0xqcv.mongodb.net:27017,ac-g3mnn9n-shard-00-02.gg0xqcv.mongodb.net:27017/?ssl=true&replicaSet=atlas-1jkcvg-shard-0&authSource=admin&appName=Cluster0")
 DB_NAME = "strategy_finder"
 
 
