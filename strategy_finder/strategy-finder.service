@@ -1,0 +1,14 @@
+[Unit]
+Description=Strategy Finder Engine
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/strategy-finder
+EnvironmentFile=/home/ubuntu/strategy-finder/.env
+ExecStart=/home/ubuntu/strategy-finder/venv/bin/python runner.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

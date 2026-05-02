@@ -28,7 +28,6 @@ from database import StrategyDatabase
 from ml_optimizer import StrategyOptimizer
 from strategy import Strategy
 import multiprocessing
-import requests
 
 
 
@@ -342,13 +341,15 @@ def tournament_selection(population: list[Strategy], k: int = 5) -> Strategy:
 
 import threading
 def event_drainer(q):
-    import requests
+    """Drain event queue and write events to MongoDB events collection."""
+    from database import StrategyDatabase
+    _db = StrategyDatabase()
     while True:
         try:
             item = q.get()
             if item is None: break
             try:
-                requests.post("http://localhost:5000/api/emit", json=item, timeout=0.5)
+                _db.emit_event(item.get("event", "unknown"), item.get("data", {}))
             except:
                 pass
         except:
@@ -630,20 +631,14 @@ def run_forever() -> None:
             f"DB: {db.count():>3d}"
         )
         
-        # Emit update to Flask dashboard
-        try:
-            requests.post("http://localhost:5000/api/emit", json={
-                "event": "generation_update",
-                "data": {
-                    "generation": generation,
-                    "best_score": round(best_score, 2),
-                    "mean_score": round(mean_score, 2),
-                    "diversity": round(div, 2),
-                    "db_count": db.count()
-                }
-            }, timeout=1)
-        except requests.RequestException:
-            pass
+        # Emit generation update to MongoDB events collection
+        db.emit_event("generation_update", {
+            "generation": generation,
+            "best_score": round(best_score, 2),
+            "mean_score": round(mean_score, 2),
+            "diversity": round(div, 2),
+            "db_count": db.count()
+        })
 
         time.sleep(1)
 

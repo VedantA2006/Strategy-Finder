@@ -64,6 +64,7 @@ class StrategyDatabase:
         self.cat_stats_col = self.db["category_stats"]
         self.cond_templates_col = self.db["condition_templates"]
         self.gen_stats_col = self.db["generation_stats"]
+        self.events_col = self.db["events"]
 
         self._create_indexes()
 
@@ -166,6 +167,19 @@ class StrategyDatabase:
         self.strategies_col.create_index([("asset", ASCENDING)])
         self.strategies_col.create_index([("created_at", DESCENDING)])
         self.cond_templates_col.create_index([("clause", ASCENDING)], unique=True)
+        # TTL index: events auto-expire after 24 hours
+        self.events_col.create_index([("created_at", ASCENDING)], expireAfterSeconds=86400)
+
+    # ── Events (engine → frontend via MongoDB) ─────────────────────────────
+
+    def emit_event(self, event: str, data: dict) -> None:
+        """Write an event to the events collection for the frontend to consume."""
+        self.events_col.insert_one({
+            "event": event,
+            "data": data,
+            "created_at": datetime.datetime.utcnow(),
+            "consumed": False
+        })
 
     # ── Save / Retrieve ──────────────────────────────────────────────────
 

@@ -1,18 +1,27 @@
 """
-app.py — Professional Flask dashboard for Strategy Finder.
+app.py — Flask dashboard for Strategy Finder.
+
+Decoupled frontend: reads strategies from MongoDB, receives live events via
+MongoDB change streams on the events collection. Zero dependency on engine modules.
 
 Routes:
   /               — Leaderboard with filters
   /strategy/<id>  — Detail page with drawdown, heatmap, and regime breakdown
   /live           — Live runner status with charts
+  /feed           — Real-time creation feed
+  /signals        — Live trading signal cards
   /api/top        — JSON endpoint for hybrid_system live engine
   /api/export/<id>— Python code export
 """
 
 from __future__ import annotations
 
+import os
 import json
 import pathlib
+import threading
+import time
+import logging
 
 from flask import Flask, render_template, abort, request, jsonify, Response, redirect
 from flask_socketio import SocketIO
@@ -21,15 +30,46 @@ import io
 
 from database import StrategyDatabase
 
+log = logging.getLogger("app")
+
 app = Flask(
     __name__,
     template_folder=str(pathlib.Path(__file__).parent / "templates"),
     static_folder=str(pathlib.Path(__file__).parent / "static"),
 )
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 def get_db() -> StrategyDatabase:
     return StrategyDatabase()
+
+
+# ─── MongoDB Change Stream Watcher ──────────────────────────────────────────
+
+def _change_stream_watcher():
+    """Background thread: watch MongoDB events collection and push to SSE clients."""
+    while True:
+        try:
+            db = StrategyDatabase()
+            # Watch for inserts on the events collection
+            with db.events_col.watch(
+                [{"$match": {"operationType": "insert"}}],
+                full_document="updateLookup"
+            ) as stream:
+                log.info("Change stream watcher connected to MongoDB events collection")
+                for change in stream:
+                    doc = change.get("fullDocument", {})
+                    event_name = doc.get("event", "unknown")
+                    event_data = doc.get("data", {})
+                    # Push to all connected SocketIO clients
+                    socketio.emit(event_name, event_data)
+        except Exception as e:
+            log.warning(f"Change stream error: {e}. Reconnecting in 5s...")
+            time.sleep(5)
+
+# Start change stream watcher in background thread
+_watcher_thread = threading.Thread(target=_change_stream_watcher, daemon=True)
+_watcher_thread.start()
 
 
 # ─── Page Routes ─────────────────────────────────────────────────────────────
@@ -241,10 +281,21 @@ def strategy_lineage(strategy_id: str):
     return jsonify(tree)
 
 
-
 @app.route("/feed")
 def creation_feed():
     return render_template("creation_feed.html")
+
+@app.route("/signals")
+def signals_page():
+    """Live trading signals page."""
+    db = get_db()
+    # Fetch recent trade_signal events
+    signals = list(db.events_col.find(
+        {"event": "trade_signal"},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50))
+    db.close()
+    return render_template("signals.html", signals=signals)
 
 @app.route("/live")
 def live_status():
@@ -305,9 +356,12 @@ def live_status():
 
 @app.route("/api/emit", methods=["POST"])
 def api_emit():
+    """Receive events via HTTP (fallback for local dev). Writes to MongoDB events collection."""
     data = request.json
     if data:
-        socketio.emit(data.get("event"), data.get("data"))
+        db = get_db()
+        db.emit_event(data.get("event", "unknown"), data.get("data", {}))
+        db.close()
     return jsonify({"status": "ok"})
 
 @app.route("/api/top")
@@ -322,7 +376,9 @@ def api_top():
 
 @app.route("/strategy/<strategy_id>/download/code")
 def download_code(strategy_id):
+    db = get_db()
     s = db.get(strategy_id)
+    db.close()
     if not s:
         return "Strategy not found", 404
         

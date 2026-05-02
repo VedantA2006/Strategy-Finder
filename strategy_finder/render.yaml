@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: strategy-finder-frontend
+    env: python
+    buildCommand: pip install -r requirements_frontend.txt
+    startCommand: gunicorn app:app -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: SECRET_KEY
+        sync: false
