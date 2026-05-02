@@ -13,8 +13,8 @@ from strategy import Strategy
 
 log = logging.getLogger("telegram_alerts")
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8640865202:AAHw3_WwwXzEh5VZvyhbUe9ri7ZA9GDsLgE")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "5508995431")
 
 
 def send_strategy_alert(strategy: Strategy) -> None:
