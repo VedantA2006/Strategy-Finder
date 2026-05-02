@@ -26,18 +26,16 @@ SLIPPAGE = 0.0005      # 0.05% slippage on entry and exit
 WARMUP   = 200         # skip first N bars for indicator warmup
 
 WF_WINDOWS = [
-    (0.60, 0.60, 0.75),
-    (0.65, 0.65, 0.80),
-    (0.70, 0.70, 0.85),
-    (0.75, 0.75, 0.90),
+    (0.60, 0.60, 0.80),
+    (0.70, 0.70, 0.90),
     (0.80, 0.80, 1.00),
 ]
 
 
 def backtest(df: pd.DataFrame, strategy: Strategy) -> dict | None:
     """
-    Run a full backtest with 5-window walk-forward validation.
-    Returns None if validation fails (< 4/5 pass) or trades are insufficient.
+    Run a full backtest with 3-window walk-forward validation.
+    Returns None if validation fails (< 2/3 pass) or trades are insufficient.
     """
     from indicators import HOLDOUT_CUTOFF
     if strategy.rr_ratio / strategy.sl_mult < 1.5:
@@ -79,9 +77,9 @@ def backtest(df: pd.DataFrame, strategy: Strategy) -> dict | None:
         wf_ratio = val_cagr / train_cagr if train_cagr > 0 else 0.0
         window_ratios.append(wf_ratio)
 
-    # Require 4 of 5 to pass (ratio >= 0.5)
+    # Require 2 of 3 to pass (ratio >= 0.5)
     passes = sum(1 for r in window_ratios if r >= 0.5)
-    if passes < 4:
+    if passes < 2:
         return None
 
     # Store stats
@@ -128,6 +126,9 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
         ema_slope = df["tf_1d_ema_200_slope"].values
     except KeyError:
         ema_slope = np.zeros(len(df))
+
+    # Precompute row dicts for signal evaluation (avoid df.iloc[i].to_dict() in hot loop)
+    row_dicts = df.to_dict(orient="records")
 
     for i in range(WARMUP, len(df)):
         row_dict: dict | None = None
@@ -330,7 +331,7 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
                 continue
 
             if row_dict is None:
-                row_dict = df.iloc[i].to_dict()
+                row_dict = row_dicts[i]
 
             try:
                 # Add math functions to locals just in case

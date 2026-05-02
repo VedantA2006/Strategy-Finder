@@ -31,7 +31,12 @@ CATEGORY_WEIGHTS: dict[str, float] = {
     "ema_crossover": 15, "rsi_thresh": 12, "macd_thresh": 10, "stoch_thresh": 5, 
     "adx_thresh": 5, "bb_crossover": 10, "momentum_roc": 8, "candle_struct": 8, 
     "volume_profile": 8, "price_struct": 5, "regime_filter": 5, "session_filter": 3,
-    "supertrend": 5, "vwap_dev": 5, "cmf": 5, "williams_r": 5
+    "supertrend": 5, "vwap_dev": 5, "cmf": 5, "williams_r": 5,
+    "ema_vs_sma": 7, "sma_crossover": 6, "price_vs_sma": 7, "rsi_range": 8,
+    "rsi_momentum": 7, "stoch_cross": 6, "mfi_thresh": 6, "cci_thresh": 6,
+    "bb_squeeze": 7, "breakout_nh": 7, "volume_spike": 7, "multi_tf_confirm": 9,
+    "cross_tf_rsi": 6, "mean_reversion": 7, "consec_candles": 5, "wick_bias": 5,
+    "obv_momentum": 6, "day_filter": 5, "willr_extreme": 6, "vwap_cross": 7
 }
 
 def update_category_weights(db) -> None:
@@ -207,20 +212,182 @@ def _random_single_condition(direction: Literal["buy", "sell"] = "buy") -> str:
         val = random.randint(-90, -80) if direction == "buy" else random.randint(-20, -10)
         return f"{pfx}willr_14 {op} {val}"
 
+    elif category == "ema_vs_sma":
+        ema = random.choice([8, 13, 21, 34, 55])
+        sma = random.choice([20, 50, 200])
+        op = ">" if direction == "buy" else "<"
+        return f"{pfx}ema_{ema} {op} {pfx}sma_{sma}"
+
+    elif category == "sma_crossover":
+        fast_sma = random.choice([20, 50])
+        slow_sma = random.choice([50, 200])
+        if fast_sma >= slow_sma:
+            fast_sma, slow_sma = 20, 200
+        op = ">" if direction == "buy" else "<"
+        return f"{pfx}sma_{fast_sma} {op} {pfx}sma_{slow_sma}"
+
+    elif category == "price_vs_sma":
+        sma = random.choice([20, 50, 200])
+        op = ">" if direction == "buy" else "<"
+        return f"{pfx}close {op} {pfx}sma_{sma}"
+
+    elif category == "rsi_range":
+        period = random.choice([7, 14, 21])
+        if direction == "buy":
+            lo, hi = random.choice([(20, 50), (30, 60), (40, 70)])
+        else:
+            lo, hi = random.choice([(50, 80), (40, 70), (60, 90)])
+        return f"{lo} < {pfx}rsi_{period} < {hi}"
+
+    elif category == "rsi_momentum":
+        period = random.choice([7, 14, 21])
+        lag = random.choice(["prev_1", "prev_3"])
+        op = ">" if direction == "buy" else "<"
+        return f"{pfx}rsi_{period} {op} {pfx}{lag}_rsi_{period}"
+
+    elif category == "stoch_cross":
+        if direction == "buy":
+            return f"{pfx}stoch_k > {pfx}stoch_d"
+        else:
+            return f"{pfx}stoch_k < {pfx}stoch_d"
+
+    elif category == "mfi_thresh":
+        tf = random.choice(["15m", "1h", "4h"])
+        if direction == "buy":
+            val = random.randint(20, 40)
+            return f"tf_{tf}_mfi_14 < {val}"
+        else:
+            val = random.randint(60, 80)
+            return f"tf_{tf}_mfi_14 > {val}"
+
+    elif category == "cci_thresh":
+        if direction == "buy":
+            val = random.choice([-100, -150, -200])
+            return f"{pfx}cci_20 < {val}"
+        else:
+            val = random.choice([100, 150, 200])
+            return f"{pfx}cci_20 > {val}"
+
+    elif category == "bb_squeeze":
+        tf = random.choice(["15m", "1h", "4h"])
+        if random.random() < 0.5:
+            val = round(random.uniform(0.02, 0.06), 3)
+            return f"tf_{tf}_bb_width < {val}"
+        else:
+            val = round(random.uniform(0.10, 0.20), 2)
+            return f"tf_{tf}_bb_width > {val}"
+
+    elif category == "breakout_nh":
+        n = random.choice([10, 20, 50])
+        if direction == "buy":
+            return f"{pfx}close > {pfx}high_{n}"
+        else:
+            return f"{pfx}close < {pfx}low_{n}"
+
+    elif category == "volume_spike":
+        val = round(random.uniform(1.5, 3.0), 1)
+        cond = f"{pfx}volume_ratio > {val}"
+        if random.random() < 0.4:
+            obv_op = ">" if direction == "buy" else "<"
+            cond += f" and {pfx}obv_slope_5 {obv_op} 0"
+        return cond
+
+    elif category == "multi_tf_confirm":
+        ind = random.choice(["rsi_14", "ema_21", "adx_14"])
+        tf1 = "15m"
+        tf2 = random.choice(["1h", "4h"])
+        if ind == "adx_14":
+            val = random.randint(20, 35)
+            return f"tf_{tf1}_{ind} > {val} and tf_{tf2}_{ind} > {val}"
+        else:
+            op = ">" if direction == "buy" else "<"
+            val = 50
+            return f"tf_{tf1}_{ind} {op} {val} and tf_{tf2}_{ind} {op} {val}"
+
+    elif category == "cross_tf_rsi":
+        period = random.choice([7, 14])
+        op = ">" if direction == "buy" else "<"
+        return f"tf_15m_rsi_{period} {op} tf_1h_rsi_{period}"
+
+    elif category == "mean_reversion":
+        ema = random.choice([34, 55, 89, 200])
+        offset = round(random.uniform(0.95, 0.99), 3)
+        if direction == "buy":
+            return f"{pfx}close < {pfx}ema_{ema} * {offset}"
+        else:
+            offset = round(2.0 - offset, 3)  # e.g. 1.01 - 1.05
+            return f"{pfx}close > {pfx}ema_{ema} * {offset}"
+
+    elif category == "consec_candles":
+        n = random.choice([2, 3])
+        if direction == "buy":
+            return f"{pfx}consec_bullish_{n} == {n}"
+        else:
+            return f"{pfx}consec_bullish_{n} == 0"
+
+    elif category == "wick_bias":
+        if direction == "buy":
+            val = round(random.uniform(0.3, 0.7), 2)
+            return f"{pfx}lower_wick_ratio > {val}"
+        else:
+            val = round(random.uniform(0.3, 0.7), 2)
+            return f"{pfx}upper_wick_ratio > {val}"
+
+    elif category == "obv_momentum":
+        tf = random.choice(["15m", "1h", "4h"])
+        op = ">" if direction == "buy" else "<"
+        return f"tf_{tf}_obv_slope_5 {op} 0"
+
+    elif category == "day_filter":
+        if random.random() < 0.6:
+            return f"tf_15m_day_of_week <= 4"
+        else:
+            days = random.sample(range(0, 5), random.randint(2, 4))
+            day = random.choice(days)
+            return f"tf_15m_day_of_week == {day}"
+
+    elif category == "willr_extreme":
+        if direction == "buy":
+            val = random.randint(-95, -75)
+            return f"{pfx}willr_14 < {val}"
+        else:
+            val = random.randint(-25, -5)
+            return f"{pfx}willr_14 > {val}"
+
+    elif category == "vwap_cross":
+        op = ">" if direction == "buy" else "<"
+        val = round(random.uniform(0.005, 0.04), 3)
+        if direction == "sell":
+            val = -val
+        return f"{pfx}vwap_dev {op} {val}"
+
     # Fallback
     return f"{pfx}rsi_14 {'<' if direction == 'buy' else '>'} 50"
 
 
+def _random_compound_clause(direction: Literal["buy", "sell"] = "buy") -> str:
+    """Generate a compound clause: two conditions joined by 'and', returned without outer parens."""
+    a = _random_single_condition(direction)
+    b = _random_single_condition(direction)
+    while b == a:
+        b = _random_single_condition(direction)
+    return f"{a} and {b}"
+
+
 def random_condition_tree(direction: Literal["buy", "sell"] = "buy") -> str:
-    """Build a compound boolean expression with 2-6 sub-conditions."""
-    n = random.randint(2, 6)
+    """Build a compound boolean expression with 2-8 sub-conditions."""
+    n = random.randint(2, 8)
     clauses = set()
     
     # Try multiple times to get unique clauses
-    for _ in range(n * 2):
+    for _ in range(n * 3):
         if len(clauses) >= n:
             break
-        clauses.add(_random_single_condition(direction))
+        # 20% chance of a compound clause
+        if random.random() < 0.2:
+            clauses.add(_random_compound_clause(direction))
+        else:
+            clauses.add(_random_single_condition(direction))
         
     clauses_list = list(clauses)
     if not clauses_list:

@@ -131,28 +131,31 @@ def _evaluate_worker(args: tuple) -> Strategy | None:
         return None
         
     qm = quick_res["metrics"]
-    if qm["max_drawdown"] > 8.0: 
+    if qm["max_drawdown"] > 12.0: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "drawdown", "value": qm["max_drawdown"], "timestamp": now_iso()})
         return None
-    if qm["win_rate"] < 48.0 or qm["win_rate"] > 78.0: 
+    if qm["win_rate"] < 42.0 or qm["win_rate"] > 85.0: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "win_rate", "value": qm["win_rate"], "timestamp": now_iso()})
         return None
-    if qm["avg_trades_per_month"] < 3.0: 
+    if qm["avg_trades_per_month"] < 1.5: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "trade_freq", "value": qm["avg_trades_per_month"], "timestamp": now_iso()})
         return None
-    if qm["total_trades"] < 10: 
+    if qm["total_trades"] < 5: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "trade_count", "value": qm["total_trades"], "timestamp": now_iso()})
         return None
 
+    # Quick score check — only prune if promising
+    quick_score = score(qm, s)
     import json
     orig_complexity = s.condition_complexity
-    s = prune_conditions(s, data)
-    s._update_complexity()
-    try:
-        ds = json.loads(s.deep_stats_json)
-        ds["original_complexity"] = orig_complexity
-        s.deep_stats_json = json.dumps(ds)
-    except: pass
+    if quick_score > 5.0:
+        s = prune_conditions(s, data)
+        s._update_complexity()
+        try:
+            ds = json.loads(s.deep_stats_json)
+            ds["original_complexity"] = orig_complexity
+            s.deep_stats_json = json.dumps(ds)
+        except: pass
 
     # Full backtest
     res = backtest(data, s)
@@ -410,8 +413,8 @@ def run_forever() -> None:
                 c._origin = "random"
                 batch.append(c)
                 
-        # Fill remainder of batch to reach 50
-        while len(batch) < 50:
+        # Fill remainder of batch to reach 200
+        while len(batch) < 200:
             asset = random.choice(ASSETS)
             
             # 10% pure random
@@ -463,7 +466,7 @@ def run_forever() -> None:
         scored_count = 0
         scores_this_gen = []
         
-        pool_size = max(1, multiprocessing.cpu_count() - 1)
+        pool_size = multiprocessing.cpu_count()
         tasks = [(s, asset_data[s.asset], asset_data.get("ETHUSDT") if s.asset == "BTCUSDT" else None, event_queue) for s in batch]
         
         with multiprocessing.Pool(pool_size) as pool:

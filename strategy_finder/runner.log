@@ -274,3 +274,18 @@ KeyError: 'metrics'
 2026-05-03 02:19:30,556 [INFO] ============================================================
 2026-05-03 02:19:30,558 [INFO] Strategy Finder - Professional Discovery Engine
 2026-05-03 02:19:30,558 [INFO] ============================================================
+2026-05-03 02:19:30,558 [INFO] Loading data for BTCUSDT ...
+2026-05-03 02:20:31,189 [INFO] All market data loaded.
+2026-05-03 02:20:37,896 [INFO] Loaded 0 past GP observations from memory.
+2026-05-03 02:21:08,611 [INFO] Gen    1 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:23:03,814 [INFO] Gen    1 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:23:28,792 [INFO] Gen    2 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:25:28,670 [INFO] Gen    2 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:25:55,689 [INFO] Gen    3 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:28:17,465 [INFO] Gen    4 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:30:53,013 [INFO] Gen    3 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:32:10,703 [INFO] Gen    4 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:33:32,458 [INFO] Gen    5 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:34:44,024 [INFO] Gen    6 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:35:49,887 [INFO] Gen    7 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:37:01,057 [INFO] Gen    8 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
