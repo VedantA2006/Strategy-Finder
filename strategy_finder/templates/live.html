@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="10">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live Runner Status</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
 </head>
 <body>
 
@@ -24,7 +25,7 @@
     <div class="page-header">
         <div>
             <h1><span class="pulse-dot"></span> Runner Status</h1>
-            <p class="subtitle" style="color:var(--text-muted); margin-top:0.5rem;">Auto-refreshes every 10s</p>
+            <p class="subtitle" style="color:var(--text-muted); margin-top:0.5rem;">Live updates via Socket.IO</p>
         </div>
     </div>
 
@@ -65,7 +66,7 @@
             <!-- Diversity Gauge -->
             <div class="chart-container gauge-container">
                 <h3>Population Diversity</h3>
-                <div class="gauge-value {{ 'positive' if latest_div > 0.8 else ('negative' if latest_div < 0.6 else '') }}">
+                <div class="gauge-value {{ 'positive' if latest_div > 0.8 else ('negative' if latest_div < 0.6 else '') }}" id="divGauge">
                     {{ "%.0f"|format(latest_div * 100) }}%
                 </div>
                 <div style="color:var(--text-muted); font-size:0.8rem; margin-top:0.5rem;">
@@ -104,7 +105,7 @@
     const labels = JSON.parse(document.getElementById('chart-labels').textContent);
     const best = JSON.parse(document.getElementById('chart-best').textContent);
 
-    new Chart(ctx, {
+    const genChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: labels,
@@ -126,6 +127,29 @@
                 x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { font: {family: 'Fira Code'} } },
                 y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { font: {family: 'Fira Code'} } }
             }
+        }
+    });
+
+    const socket = io();
+    socket.on("generation_update", function(data) {
+        // Dynamically update the chart
+        genChart.data.labels.push(data.generation);
+        genChart.data.datasets[0].data.push(data.best_score);
+        
+        // Keep only last 50 points
+        if (genChart.data.labels.length > 50) {
+            genChart.data.labels.shift();
+            genChart.data.datasets[0].data.shift();
+        }
+        genChart.update();
+
+        // Dynamically update diversity gauge
+        const divGauge = document.getElementById("divGauge");
+        if (divGauge) {
+            divGauge.innerText = Math.round(data.diversity * 100) + "%";
+            divGauge.className = "gauge-value";
+            if (data.diversity > 0.8) divGauge.classList.add("positive");
+            else if (data.diversity < 0.6) divGauge.classList.add("negative");
         }
     });
 </script>

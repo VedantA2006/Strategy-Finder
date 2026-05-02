@@ -39,6 +39,8 @@ class Strategy:
     rr_ratio: float = 3.0            # TP distance = atr_14 × rr_ratio; MUST >= sl_mult × 1.5
     cooldown: int = 3                # bars to skip after a trade closes
     atr_gate: float = 0.001          # skip trade if atr_pct < atr_gate
+    trail_mult: float = 0.0          # trailing stop mult (0 = disabled)
+    tp1_ratio: float = 0.0           # partial exit at this fraction of TP (0 = disabled)
 
     # ── Condition trees (Python eval-able expressions on row dict) ───────
     buy_conditions: str = ""
@@ -55,6 +57,8 @@ class Strategy:
     regime_bear_wr: float = 0.0           # win rate in bear regime
     regime_sideways_wr: float = 0.0       # win rate in sideways regime
     validation_cagr: float = 0.0          # CAGR on validation split
+    p_value: float = 1.0                  # significance of win rate compared to random shuffle
+    is_correlated: bool = False           # if highly correlated to existing top strategies
 
     # ── Complexity / structure metadata ──────────────────────────────────
     condition_complexity: int = 0         # total clauses in buy + sell trees
@@ -102,10 +106,10 @@ class Strategy:
         """Dollar RR must be >= 1.5:1 — rr_ratio >= sl_mult × 1.5."""
         return self.rr_ratio / self.sl_mult >= 1.5
 
-    # ── Param vector for ML optimizer (12 features) ──────────────────────
+    # ── Param vector for ML optimizer (14 features) ──────────────────────
     @property
     def params_vector(self) -> list[float]:
-        """12-feature vector for Gaussian Process surrogate model."""
+        """14-feature vector for Gaussian Process surrogate model."""
         all_conds = f"{self.buy_conditions} {self.sell_conditions}"
         tokens = all_conds.split()
         n_and = tokens.count("and")
@@ -124,14 +128,16 @@ class Strategy:
             self.rr_ratio,                   # 1
             float(self.cooldown),            # 2
             self.atr_gate,                   # 3
-            float(self.condition_complexity), # 4
-            float(n_and),                    # 5
-            float(n_or),                     # 6
-            float(unique_indicators),        # 7
-            float(self.n_timeframes_used),   # 8
-            has_volume,                      # 9
-            has_regime,                      # 10
-            has_session,                     # 11
+            self.trail_mult,                 # 4
+            self.tp1_ratio,                  # 5
+            float(self.condition_complexity), # 6
+            float(n_and),                    # 7
+            float(n_or),                     # 8
+            float(unique_indicators),        # 9
+            float(self.n_timeframes_used),   # 10
+            has_volume,                      # 11
+            has_regime,                      # 12
+            has_session,                     # 13
         ]
 
     # ── JSON serialization ───────────────────────────────────────────────
@@ -156,6 +162,8 @@ class Strategy:
             rr_ratio=float(d.get("rr_ratio", 3.0)),
             cooldown=int(d.get("cooldown", 3)),
             atr_gate=float(d.get("atr_gate", 0.001)),
+            trail_mult=float(d.get("trail_mult", 0.0)),
+            tp1_ratio=float(d.get("tp1_ratio", 0.0)),
             buy_conditions=d.get("buy_conditions", ""),
             sell_conditions=d.get("sell_conditions", ""),
             metrics=metrics,
@@ -170,6 +178,8 @@ class Strategy:
             n_timeframes_used=int(d.get("n_timeframes_used", 1)),
             monthly_returns_json=d.get("monthly_returns_json", "[]"),
             trade_log_json=d.get("trade_log_json", "[]"),
+            p_value=float(d.get("p_value", 1.0)),
+            is_correlated=bool(d.get("is_correlated", False)),
         )
 
     def to_json(self) -> str:

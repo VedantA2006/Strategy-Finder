@@ -2,7 +2,7 @@
 ml_optimizer.py — Advanced GP-based Bayesian optimizer.
 
 Uses GaussianProcessRegressor with Upper Confidence Bound (UCB) acquisition
-to balance exploration and exploitation across the 12-feature parameter space.
+to balance exploration and exploitation across the 14-feature parameter space.
 Maintains separate models per asset.
 """
 
@@ -101,7 +101,7 @@ class StrategyOptimizer:
     def random_params() -> list[float]:
         """
         Generate a random valid parameter vector for suggestions.
-        Format must match the 12-feature vector in strategy.py.
+        Format must match the 14-feature vector in strategy.py.
         """
         sl_mult = round(random.uniform(1.0, 4.0), 1)
         min_rr = round(sl_mult * 1.5 + 0.1, 1)
@@ -120,8 +120,11 @@ class StrategyOptimizer:
         has_regime = float(random.choice([0, 1]))
         has_sess = float(random.choice([0, 1]))
         
+        trail_mult = round(random.uniform(0.0, 2.0), 1) if random.random() < 0.5 else 0.0
+        tp1_ratio = round(random.uniform(0.2, 0.8), 2) if random.random() < 0.3 else 0.0
+        
         return [
-            sl_mult, rr_ratio, cooldown, atr_gate,
+            sl_mult, rr_ratio, cooldown, atr_gate, trail_mult, tp1_ratio,
             complexity, n_and, n_or, unique_inds, tfs,
             has_vol, has_regime, has_sess
         ]

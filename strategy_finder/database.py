@@ -61,6 +61,8 @@ class StrategyDatabase:
                 regime_bear_wr REAL,
                 regime_sideways_wr REAL,
                 validation_cagr REAL,
+                p_value REAL DEFAULT 1.0,
+                is_correlated INTEGER DEFAULT 0,
                 
                 -- Complexity Metrics
                 condition_complexity INTEGER,
@@ -89,18 +91,61 @@ class StrategyDatabase:
                 timestamp   TEXT
             );
         """)
+        # Safe alter for existing DBs
+        try:
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN p_value REAL DEFAULT 1.0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN is_correlated INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         self.conn.commit()
 
     # ── CRUD ─────────────────────────────────────────────────────────────
 
     def save(self, s: Strategy) -> None:
         """Insert or replace a strategy with its metrics."""
+        # Correlation check
+        s.is_correlated = False
+        if s.trade_log_json and s.metrics.get("score", -999) > -999:
+            try:
+                top10 = self.top_n(10)
+                if top10:
+                    import pandas as pd
+                    new_trades = json.loads(s.trade_log_json)
+                    if new_trades:
+                        df_new = pd.DataFrame(new_trades)
+                        df_new['exit_time'] = pd.to_datetime(df_new['exit_time'])
+                        df_new.set_index('exit_time', inplace=True)
+                        daily_new = df_new['pnl'].resample('D').sum().fillna(0)
+                        
+                        for top_s in top10:
+                            if not top_s.trade_log_json or top_s.trade_log_json == "[]": continue
+                            top_trades = json.loads(top_s.trade_log_json)
+                            if not top_trades: continue
+                            df_top = pd.DataFrame(top_trades)
+                            df_top['exit_time'] = pd.to_datetime(df_top['exit_time'])
+                            df_top.set_index('exit_time', inplace=True)
+                            daily_top = df_top['pnl'].resample('D').sum().fillna(0)
+                            
+                            idx = daily_new.index.intersection(daily_top.index)
+                            if len(idx) > 30:
+                                corr = daily_new.loc[idx].corr(daily_top.loc[idx])
+                                if corr > 0.85:
+                                    s.is_correlated = True
+                                    break
+            except Exception as e:
+                pass
+
         m = s.metrics
         params = {
             "sl_mult": s.sl_mult,
             "rr_ratio": s.rr_ratio,
             "cooldown": s.cooldown,
             "atr_gate": s.atr_gate,
+            "trail_mult": s.trail_mult,
+            "tp1_ratio": s.tp1_ratio,
         }
         self.conn.execute("""
             INSERT OR REPLACE INTO strategies
@@ -109,12 +154,13 @@ class StrategyDatabase:
              max_drawdown, max_dd_duration, sharpe, trades_per_month, score,
              walk_forward_ratio, mc_drawdown_p95, parameter_sensitivity,
              regime_bull_wr, regime_bear_wr, regime_sideways_wr, validation_cagr,
+             p_value, is_correlated,
              condition_complexity, n_timeframes_used,
              equity_curve, monthly_returns_json, trade_log_json, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?)
         """, (
             s.id, s.name, s.generation, s.asset,
             json.dumps(params),
@@ -138,6 +184,9 @@ class StrategyDatabase:
             s.regime_bear_wr,
             s.regime_sideways_wr,
             s.validation_cagr,
+            
+            m.get("p_value", 1.0),
+            1 if s.is_correlated else 0,
             
             s.condition_complexity,
             s.n_timeframes_used,
@@ -212,10 +261,13 @@ class StrategyDatabase:
         self.conn.execute(f"""
             DELETE FROM strategies
             WHERE id NOT IN (
-                SELECT id FROM strategies WHERE score > -999 ORDER BY score DESC LIMIT ?
+                SELECT id FROM strategies WHERE score > -999 ORDER BY score DESC LIMIT 20
+            )
+            AND id NOT IN (
+                SELECT id FROM strategies WHERE score > -999 AND is_correlated = 0 ORDER BY score DESC LIMIT 80
             )
             AND id NOT IN (SELECT id FROM hall_of_fame)
-        """, (n,))
+        """)
         self.conn.commit()
 
     # ── Run logging ──────────────────────────────────────────────────────
@@ -264,6 +316,8 @@ class StrategyDatabase:
             rr_ratio=params.get("rr_ratio", 3.0),
             cooldown=params.get("cooldown", 3),
             atr_gate=params.get("atr_gate", 0.001),
+            trail_mult=params.get("trail_mult", 0.0),
+            tp1_ratio=params.get("tp1_ratio", 0.0),
             buy_conditions=row["buy_conditions"],
             sell_conditions=row["sell_conditions"],
             
@@ -274,6 +328,8 @@ class StrategyDatabase:
             regime_bear_wr=row["regime_bear_wr"],
             regime_sideways_wr=row["regime_sideways_wr"],
             validation_cagr=row["validation_cagr"],
+            p_value=row["p_value"],
+            is_correlated=bool(row["is_correlated"]),
             condition_complexity=row["condition_complexity"],
             n_timeframes_used=row["n_timeframes_used"],
             monthly_returns_json=row["monthly_returns_json"],
@@ -289,6 +345,7 @@ class StrategyDatabase:
                 "max_dd_duration":      row["max_dd_duration"],
                 "sharpe":               row["sharpe"],
                 "avg_trades_per_month": row["trades_per_month"],
+                "p_value":              row["p_value"],
                 "score":                row["score"],
                 "equity_curve":         equity_curve,
             },

@@ -209,8 +209,9 @@ def _compute_indicators(df: pd.DataFrame, tf_label: str) -> pd.DataFrame:
     # ── Williams %R ──────────────────────────────────────────────────────
     df[f"{pfx}willr_14"] = ta.momentum.WilliamsRIndicator(h, l, c, lbp=14).williams_r()
 
-    # ── MFI ──────────────────────────────────────────────────────────────
+    # ── MFI & CMF ────────────────────────────────────────────────────────
     df[f"{pfx}mfi_14"] = ta.volume.MFIIndicator(h, l, c, v, window=14).money_flow_index()
+    df[f"{pfx}cmf_20"] = ta.volume.ChaikinMoneyFlowIndicator(h, l, c, v, window=20).chaikin_money_flow()
 
     # ── OBV & OBV change ─────────────────────────────────────────────────
     df[f"{pfx}obv"] = ta.volume.OnBalanceVolumeIndicator(c, v).on_balance_volume()
@@ -250,6 +251,17 @@ def _compute_indicators(df: pd.DataFrame, tf_label: str) -> pd.DataFrame:
     df[f"{pfx}consec_bullish_2"] = (bull + bull.shift(1)).fillna(0)
     df[f"{pfx}consec_bullish_3"] = (bull + bull.shift(1) + bull.shift(2)).fillna(0)
 
+    # Advanced patterns
+    prev_body = body.shift(1)
+    prev_bearish = df[f"{pfx}is_bearish"].shift(1)
+    df[f"{pfx}is_engulfing_bull"] = ((df[f"{pfx}is_bullish"] == 1.0) & (prev_bearish == 1.0) & (c > o.shift(1)) & (o < c.shift(1))).astype(float)
+    
+    prev_bullish = df[f"{pfx}is_bullish"].shift(1)
+    df[f"{pfx}is_engulfing_bear"] = ((df[f"{pfx}is_bearish"] == 1.0) & (prev_bullish == 1.0) & (c < o.shift(1)) & (o > c.shift(1))).astype(float)
+    
+    df[f"{pfx}is_hammer"] = ((body < total_range * 0.3) & (lower_wick > body * 2) & (upper_wick < body * 0.5)).astype(float)
+    df[f"{pfx}is_shooting_star"] = ((body < total_range * 0.3) & (upper_wick > body * 2) & (lower_wick < body * 0.5)).astype(float)
+
     # ── Volume profile ───────────────────────────────────────────────────
     vol_sma20 = v.rolling(20).mean()
     df[f"{pfx}volume_ratio"] = v / vol_sma20
@@ -274,6 +286,34 @@ def _compute_indicators(df: pd.DataFrame, tf_label: str) -> pd.DataFrame:
     # ── Regime (200-EMA slope) — only meaningful for 1d, computed for all ─
     ema200 = df[f"{pfx}ema_200"]
     df[f"{pfx}ema_200_slope"] = ema200.pct_change(20) * 100  # 20-bar slope
+
+    # ── Supertrend (10, 3) ───────────────────────────────────────────────
+    atr10 = ta.volatility.AverageTrueRange(h, l, c, window=10).average_true_range()
+    hl2 = (h + l) / 2
+    basic_ub = hl2 + (3 * atr10)
+    basic_lb = hl2 - (3 * atr10)
+    
+    c_arr = c.values
+    ub_arr = basic_ub.values
+    lb_arr = basic_lb.values
+    st_arr = np.zeros(len(c))
+    dir_arr = np.ones(len(c))
+    
+    for i in range(1, len(c)):
+        if c_arr[i] > ub_arr[i-1]:
+            dir_arr[i] = 1
+        elif c_arr[i] < lb_arr[i-1]:
+            dir_arr[i] = -1
+        else:
+            dir_arr[i] = dir_arr[i-1]
+            if dir_arr[i] == 1 and lb_arr[i] < lb_arr[i-1]:
+                lb_arr[i] = lb_arr[i-1]
+            if dir_arr[i] == -1 and ub_arr[i] > ub_arr[i-1]:
+                ub_arr[i] = ub_arr[i-1]
+                
+        st_arr[i] = lb_arr[i] if dir_arr[i] == 1 else ub_arr[i]
+        
+    df[f"{pfx}supertrend_10_3"] = st_arr
 
     # Keep raw OHLCV columns with tf prefix too
     df[f"{pfx}close"] = c

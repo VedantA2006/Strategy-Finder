@@ -1,0 +1,18 @@
+2026-05-03 01:03:04,423 [INFO] ============================================================
+2026-05-03 01:03:04,424 [INFO] Strategy Finder — Professional Discovery Engine
+2026-05-03 01:03:04,424 [INFO] ============================================================
+2026-05-03 01:03:04,424 [INFO] Loading data for BTCUSDT ...
+2026-05-03 01:05:40,523 [INFO] Loading data for ETHUSDT ...
+2026-05-03 01:08:37,604 [INFO] Loading data for SOLUSDT ...
+2026-05-03 01:11:14,545 [INFO] All market data loaded.
+2026-05-03 01:12:49,854 [ERROR] Fatal error: 'metrics'
+Traceback (most recent call last):
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 312, in <module>
+    run_forever()
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 258, in run_forever
+    if not run_robustness(s, data, res):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 148, in run_robustness
+    metrics = base_res["metrics"]
+              ~~~~~~~~^^^^^^^^^^^
+KeyError: 'metrics'

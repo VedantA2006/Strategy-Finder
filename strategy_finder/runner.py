@@ -24,6 +24,43 @@ from scorer import score
 from database import StrategyDatabase
 from ml_optimizer import StrategyOptimizer
 from strategy import Strategy
+import multiprocessing
+import requests
+
+def _evaluate_worker(args: tuple) -> Strategy | None:
+    s, data, eth_data = args
+    
+    # Fast reject filter (last 6 months, ~17280 bars of 15m)
+    recent_data = data.iloc[-17280:].copy() if len(data) > 17280 else data.copy()
+    quick_res = _run_engine(recent_data, s, "val")
+    if quick_res is None:
+        return None
+        
+    qm = quick_res["metrics"]
+    if qm["max_drawdown"] > 8.0: return None
+    if qm["win_rate"] < 48.0 or qm["win_rate"] > 78.0: return None
+    if qm["avg_trades_per_month"] < 3.0: return None
+    if qm["total_trades"] < 10: return None
+
+    # Full backtest
+    res = backtest(data, s)
+    if res is None:
+        return None
+        
+    # Robustness pipeline
+    if not run_robustness(s, data, res):
+        return None
+        
+    s.metrics = res["metrics"]
+    s.metrics["score"] = score(s.metrics, s)
+    
+    if s.metrics["score"] > -999:
+        if s.metrics["score"] > 5.0 and s.asset == "BTCUSDT" and eth_data is not None:
+            eth_res = backtest(eth_data, s)
+            if eth_res and score(eth_res["metrics"], s) > 0:
+                s.metrics["score"] *= 1.2
+        return s
+    return None
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -245,38 +282,18 @@ def run_forever() -> None:
         next_population: list[Strategy] = []
         scored_count = 0
         scores_this_gen = []
-
-        for s in batch:
-            data = asset_data[s.asset]
-            
-            # Main Backtest (includes Walk Forward)
-            res = backtest(data, s)
-            if res is None:
-                continue
-                
-            # Robustness Pipeline
-            if not run_robustness(s, data, res):
-                continue
-                
-            # Final Score
-            s.metrics = res["metrics"]
-            s.metrics["score"] = score(s.metrics, s)
-            
-            if s.metrics["score"] > -999:
-                # Potential Cross-Asset Test for high scorers
-                if s.metrics["score"] > 5.0 and s.asset == "BTCUSDT":
-                    # Check if it works on ETH
-                    eth_res = backtest(asset_data["ETHUSDT"], s)
-                    if eth_res and score(eth_res["metrics"], s) > 0:
-                        # Bonus!
-                        s.metrics["score"] *= 1.2
-                        log.info(f"Cross-Asset Bonus Applied! {s.id}")
-                
-                db.save(s)
-                optimizer.record(s.asset, s.params_vector, s.metrics["score"])
-                next_population.append(s)
-                scores_this_gen.append(s.metrics["score"])
-                scored_count += 1
+        
+        pool_size = max(1, multiprocessing.cpu_count() - 1)
+        tasks = [(s, asset_data[s.asset], asset_data.get("ETHUSDT") if s.asset == "BTCUSDT" else None) for s in batch]
+        
+        with multiprocessing.Pool(pool_size) as pool:
+            for s_res in pool.imap_unordered(_evaluate_worker, tasks):
+                if s_res is not None:
+                    db.save(s_res)
+                    optimizer.record(s_res.asset, s_res.params_vector, s_res.metrics["score"])
+                    next_population.append(s_res)
+                    scores_this_gen.append(s_res.metrics["score"])
+                    scored_count += 1
 
         # ── 4. Housekeeping ──────────────────────────────────────────────
         population = next_population
@@ -303,6 +320,21 @@ def run_forever() -> None:
             f"Top: {best_score:>8.2f} | "
             f"DB: {db.count():>3d}"
         )
+        
+        # Emit update to Flask dashboard
+        try:
+            requests.post("http://localhost:5000/api/emit", json={
+                "event": "generation_update",
+                "data": {
+                    "generation": generation,
+                    "best_score": round(best_score, 2),
+                    "mean_score": round(mean_score, 2),
+                    "diversity": round(div, 2),
+                    "db_count": db.count()
+                }
+            }, timeout=1)
+        except requests.RequestException:
+            pass
 
         time.sleep(1)
 

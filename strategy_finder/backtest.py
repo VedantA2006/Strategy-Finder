@@ -11,6 +11,7 @@ Features:
 
 from __future__ import annotations
 
+import random
 import datetime
 from collections import defaultdict
 import numpy as np
@@ -108,9 +109,53 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
             c_open = opens[i]
             c_high = highs[i]
             c_low = lows[i]
+            c_close = closes[i]
 
             exit_price = None
             exit_reason = None
+
+            # Trailing Stop
+            if strategy.trail_mult > 0:
+                atr_now = atr14[i]
+                if direction == "long":
+                    new_sl = c_close - (atr_now * strategy.trail_mult)
+                    if new_sl > sl:
+                        sl = new_sl
+                        position["sl"] = sl
+                else:
+                    new_sl = c_close + (atr_now * strategy.trail_mult)
+                    if new_sl < sl:
+                        sl = new_sl
+                        position["sl"] = sl
+
+            # Partial Exit (TP1)
+            tp1_hit = position.get("tp1_hit", False)
+            if strategy.tp1_ratio > 0 and not tp1_hit:
+                if direction == "long":
+                    tp1_price = entry_price + (tp - entry_price) * strategy.tp1_ratio
+                    if c_high >= tp1_price:
+                        partial_qty = qty / 2
+                        position["qty"] -= partial_qty
+                        qty = position["qty"]
+                        position["tp1_hit"] = True
+                        actual_exit = tp1_price * (1 - SLIPPAGE)
+                        partial_pnl = (actual_exit - entry_price) * partial_qty
+                        partial_pnl -= (partial_qty * actual_exit) * FEE
+                        position["partial_pnl"] = partial_pnl
+                        # Adjust fees for remaining portion
+                        position["entry_fee_paid_for_partial"] = True
+                else:
+                    tp1_price = entry_price - (entry_price - tp) * strategy.tp1_ratio
+                    if c_low <= tp1_price:
+                        partial_qty = qty / 2
+                        position["qty"] -= partial_qty
+                        qty = position["qty"]
+                        position["tp1_hit"] = True
+                        actual_exit = tp1_price * (1 + SLIPPAGE)
+                        partial_pnl = (entry_price - actual_exit) * partial_qty
+                        partial_pnl -= (partial_qty * actual_exit) * FEE
+                        position["partial_pnl"] = partial_pnl
+                        position["entry_fee_paid_for_partial"] = True
 
             # 3-Layer Exit Resolver
             if direction == "long":
@@ -190,15 +235,31 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
                         else:
                             pnl = (entry_price - actual_exit) * qty
                     else:
-                        pnl = -(risk_amt * strategy.sl_mult)
+                        # hit normal SL, recalculate exact loss based on actual_exit due to trail or normal
+                        if direction == "long":
+                            pnl = (actual_exit - entry_price) * qty
+                        else:
+                            pnl = (entry_price - actual_exit) * qty
                     is_win = False
 
                 # Notional fee (entry fee + exit fee)
                 notional_entry = qty * entry_price
                 notional_exit = qty * actual_exit
-                fees = (notional_entry + notional_exit) * FEE
+                
+                # If partial was hit, we only pay entry fee on the remaining qty since partial already deducted its own entry+exit fee
+                entry_fee_amt = notional_entry * FEE if not position.get("entry_fee_paid_for_partial") else (qty * entry_price) * FEE
+                fees = entry_fee_amt + (notional_exit * FEE)
 
                 pnl -= fees
+                
+                # Add back partial PnL
+                partial_pnl = position.get("partial_pnl", 0.0)
+                pnl += partial_pnl
+                
+                if partial_pnl > 0 and pnl > 0: is_win = True
+                elif partial_pnl > 0 and pnl <= 0: is_win = False # or true depending on net
+                is_win = pnl > 0
+
                 balance += pnl
                 if balance <= 0:
                     balance = 0.01
@@ -339,6 +400,14 @@ def _compute_metrics(trades: list[dict], equity: list[float], df: pd.DataFrame, 
     avg_loss = np.mean([abs(t["pnl"]) for t in losses]) if losses else 1.0
     dollar_rr = float(avg_win / avg_loss) if avg_loss > 0 else 0.0
 
+    # P-value calculation (Binomial test vs 50% random coin flip)
+    p_value = 1.0
+    if len(trades) > 0:
+        actual_wins = len(wins)
+        n_trades = len(trades)
+        better_or_equal = sum(1 for _ in range(1000) if sum(random.random() < 0.5 for _ in range(n_trades)) >= actual_wins)
+        p_value = better_or_equal / 1000.0
+
     metrics = {
         "total_return_pct":     round(total_return_pct, 2),
         "cagr":                 round(cagr, 2),
@@ -352,6 +421,7 @@ def _compute_metrics(trades: list[dict], equity: list[float], df: pd.DataFrame, 
         "total_trades":         len(trades),
         "wins":                 len(wins),
         "losses":               len(losses),
+        "p_value":              round(p_value, 4),
         "score":                0,
         "equity_curve":         [round(e, 2) for e in equity],
     }

@@ -36,8 +36,9 @@ def _random_single_condition(direction: Literal["buy", "sell"] = "buy") -> str:
     category = random.choices(
         ["ema_crossover", "rsi_thresh", "macd_thresh", "stoch_thresh", 
          "adx_thresh", "bb_crossover", "momentum_roc", "candle_struct", 
-         "volume_profile", "price_struct", "regime_filter", "session_filter"],
-        weights=[20, 15, 10, 5, 5, 10, 10, 5, 5, 5, 5, 5]
+         "volume_profile", "price_struct", "regime_filter", "session_filter",
+         "supertrend", "vwap_dev", "cmf", "williams_r"],
+        weights=[15, 12, 10, 5, 5, 10, 8, 8, 8, 5, 5, 3, 5, 5, 5, 5]
     )[0]
 
     tf = _rnd_tf()
@@ -106,10 +107,10 @@ def _random_single_condition(direction: Literal["buy", "sell"] = "buy") -> str:
         return f"{pfx}{ind} {op} {pfx}{lag}_{ind}"
 
     elif category == "candle_struct":
-        sub = random.choice(["is_bullish", "is_bearish", "consec_bullish_2", "body_ratio", "upper_wick_ratio", "lower_wick_ratio"])
-        if sub in ["is_bullish", "is_bearish"]:
-            val = 1.0 if direction == "buy" and sub == "is_bullish" else 0.0
-            if sub == "is_bearish": val = 1.0 if direction == "sell" else 0.0
+        sub = random.choice(["is_bullish", "is_bearish", "consec_bullish_2", "body_ratio", "upper_wick_ratio", "lower_wick_ratio", "is_engulfing_bull", "is_engulfing_bear", "is_hammer", "is_shooting_star"])
+        if sub in ["is_bullish", "is_bearish", "is_engulfing_bull", "is_engulfing_bear", "is_hammer", "is_shooting_star"]:
+            val = 1.0 if direction == "buy" and "bull" in sub or sub == "is_hammer" else 0.0
+            if "bear" in sub or sub == "is_shooting_star": val = 1.0 if direction == "sell" else 0.0
             return f"{pfx}{sub} == 1"
         elif sub == "consec_bullish_2":
             return f"{pfx}{sub} == 2"
@@ -157,6 +158,28 @@ def _random_single_condition(direction: Literal["buy", "sell"] = "buy") -> str:
         end = start + random.randint(4, 8)
         return f"(tf_15m_hour_utc >= {start} and tf_15m_hour_utc <= {end})"
 
+    elif category == "supertrend":
+        op = ">" if direction == "buy" else "<"
+        return f"{pfx}close {op} {pfx}supertrend_10_3"
+
+    elif category == "vwap_dev":
+        op = "<" if direction == "buy" else ">"  # mean reversion
+        if random.random() < 0.5: op = ">" if direction == "buy" else "<" # breakout
+        val = round(random.uniform(0.01, 0.05), 3)
+        op_val = f"-{val}" if op == "<" else f"{val}"
+        return f"{pfx}vwap_dev {op} {op_val}"
+
+    elif category == "cmf":
+        op = ">" if direction == "buy" else "<"
+        val = round(random.uniform(0.05, 0.2), 2)
+        if op == "<": val = -val
+        return f"{pfx}cmf_20 {op} {val}"
+
+    elif category == "williams_r":
+        op = "<" if direction == "buy" else ">"
+        val = random.randint(-90, -80) if direction == "buy" else random.randint(-20, -10)
+        return f"{pfx}willr_14 {op} {val}"
+
     # Fallback
     return f"{pfx}rsi_14 {'<' if direction == 'buy' else '>'} 50"
 
@@ -195,6 +218,8 @@ def generate_random_strategy(generation: int, asset: str = "BTCUSDT") -> Strateg
     rr_ratio = round(random.uniform(min_rr, min_rr + 4.0), 1)
     cooldown = random.randint(2, 10)
     atr_gate = round(random.uniform(0.0005, 0.003), 4)
+    trail_mult = round(random.uniform(0.0, 2.0), 1) if random.random() < 0.5 else 0.0
+    tp1_ratio = round(random.uniform(0.2, 0.8), 2) if random.random() < 0.3 else 0.0
 
     buy_conditions = random_condition_tree("buy")
     sell_conditions = random_condition_tree("sell")
@@ -206,6 +231,8 @@ def generate_random_strategy(generation: int, asset: str = "BTCUSDT") -> Strateg
         rr_ratio=rr_ratio,
         cooldown=cooldown,
         atr_gate=atr_gate,
+        trail_mult=trail_mult,
+        tp1_ratio=tp1_ratio,
         buy_conditions=buy_conditions,
         sell_conditions=sell_conditions,
     )
@@ -217,6 +244,8 @@ def build_strategy_from_params(params: list[float], generation: int, asset: str 
     rr_ratio = round(params[1], 1)
     cooldown = int(round(params[2]))
     atr_gate = round(params[3], 4)
+    trail_mult = round(params[4], 1) if params[4] > 0 else 0.0
+    tp1_ratio = round(params[5], 2) if params[5] > 0 else 0.0
 
     min_rr = round(sl_mult * 1.5 + 0.1, 1)
     rr_ratio = max(rr_ratio, min_rr)
@@ -228,6 +257,8 @@ def build_strategy_from_params(params: list[float], generation: int, asset: str 
         rr_ratio=rr_ratio,
         cooldown=cooldown,
         atr_gate=atr_gate,
+        trail_mult=trail_mult,
+        tp1_ratio=tp1_ratio,
         buy_conditions=random_condition_tree("buy"),
         sell_conditions=random_condition_tree("sell"),
     )
@@ -289,7 +320,9 @@ def crossover(parent_a: Strategy, parent_b: Strategy, generation: int) -> Strate
         sl_mult=random.choice([parent_a.sl_mult, parent_b.sl_mult]),
         rr_ratio=random.choice([parent_a.rr_ratio, parent_b.rr_ratio]),
         cooldown=random.choice([parent_a.cooldown, parent_b.cooldown]),
-        atr_gate=random.choice([parent_a.atr_gate, parent_b.atr_gate])
+        atr_gate=random.choice([parent_a.atr_gate, parent_b.atr_gate]),
+        trail_mult=random.choice([parent_a.trail_mult, parent_b.trail_mult]),
+        tp1_ratio=random.choice([parent_a.tp1_ratio, parent_b.tp1_ratio])
     )
     
     # Crossover buy conditions
@@ -348,6 +381,8 @@ def mutate_strategy(parent: Strategy, generation: int) -> Strategy:
         rr_ratio=parent.rr_ratio,
         cooldown=parent.cooldown,
         atr_gate=parent.atr_gate,
+        trail_mult=parent.trail_mult,
+        tp1_ratio=parent.tp1_ratio,
         buy_conditions=parent.buy_conditions,
         sell_conditions=parent.sell_conditions,
     )
@@ -361,6 +396,10 @@ def mutate_strategy(parent: Strategy, generation: int) -> Strategy:
         child.cooldown = max(2, min(15, child.cooldown + random.randint(-2, 2)))
     if random.random() < 0.2:
         child.atr_gate = round(max(0.0005, min(0.005, child.atr_gate + random.uniform(-0.0005, 0.0005))), 4)
+    if random.random() < 0.2:
+        child.trail_mult = round(max(0.0, min(3.0, child.trail_mult + random.uniform(-0.2, 0.2))), 1)
+    if random.random() < 0.2:
+        child.tp1_ratio = round(max(0.0, min(0.8, child.tp1_ratio + random.uniform(-0.1, 0.1))), 2)
 
     # 2. Mutate conditions
     if random.random() < 0.5:

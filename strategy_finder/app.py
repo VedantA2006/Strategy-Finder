@@ -15,6 +15,7 @@ import json
 import pathlib
 
 from flask import Flask, render_template, abort, request, jsonify
+from flask_socketio import SocketIO
 
 from database import StrategyDatabase
 
@@ -23,6 +24,7 @@ app = Flask(
     template_folder=str(pathlib.Path(__file__).parent / "templates"),
     static_folder=str(pathlib.Path(__file__).parent / "static"),
 )
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 def get_db() -> StrategyDatabase:
     return StrategyDatabase()
@@ -90,6 +92,30 @@ def strategy_detail(strategy_id: str):
         monthly_returns=monthly
     )
 
+@app.route("/strategy/<strategy_id>/export")
+def strategy_export_json(strategy_id: str):
+    """Returns a JSON file formatted as a live-trading config."""
+    db = get_db()
+    s = db.get(strategy_id)
+    db.close()
+    
+    if not s:
+        abort(404)
+        
+    config = {
+        "id": s.id,
+        "asset": s.asset,
+        "sl_mult": s.sl_mult,
+        "rr_ratio": s.rr_ratio,
+        "trail_mult": s.trail_mult,
+        "tp1_ratio": s.tp1_ratio,
+        "cooldown": s.cooldown,
+        "atr_gate": s.atr_gate,
+        "buy_conditions": s.buy_conditions,
+        "sell_conditions": s.sell_conditions
+    }
+    return jsonify(config)
+
 
 @app.route("/live")
 def live_status():
@@ -148,6 +174,13 @@ def live_status():
 
 # ─── API Routes ──────────────────────────────────────────────────────────────
 
+@app.route("/api/emit", methods=["POST"])
+def api_emit():
+    data = request.json
+    if data:
+        socketio.emit(data.get("event"), data.get("data"))
+    return jsonify({"status": "ok"})
+
 @app.route("/api/top")
 def api_top():
     """JSON endpoint for the hybrid live engine to consume top strategies."""
@@ -199,4 +232,4 @@ class StrategyConfig:
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)
