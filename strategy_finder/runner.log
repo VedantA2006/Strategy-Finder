@@ -265,3 +265,12 @@ KeyError: 'metrics'
 2026-05-03 02:16:18,376 [INFO] Strategy Finder - Professional Discovery Engine
 2026-05-03 02:16:18,376 [INFO] ============================================================
 2026-05-03 02:16:18,376 [INFO] Loading data for BTCUSDT ...
+2026-05-03 02:18:59,170 [INFO] ============================================================
+2026-05-03 02:18:59,170 [INFO] Strategy Finder - Professional Discovery Engine
+2026-05-03 02:18:59,170 [INFO] ============================================================
+2026-05-03 02:18:59,170 [INFO] Loading data for BTCUSDT ...
+2026-05-03 02:19:26,252 [INFO] All market data loaded.
+2026-05-03 02:19:28,012 [INFO] Loaded 0 past GP observations from memory.
+2026-05-03 02:19:30,556 [INFO] ============================================================
+2026-05-03 02:19:30,558 [INFO] Strategy Finder - Professional Discovery Engine
+2026-05-03 02:19:30,558 [INFO] ============================================================
