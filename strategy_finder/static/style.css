@@ -497,4 +497,58 @@ a.strategy-link:hover {
 @media (max-width: 900px) {
     .charts-grid { grid-template-columns: 1fr; }
     .page-header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+    .container { padding: 0 1rem; }
+    
+    .navbar .container { 
+        flex-direction: column; 
+        gap: 1rem; 
+    }
+    
+    .nav-links { 
+        flex-wrap: wrap; 
+        justify-content: center; 
+    }
+    
+    .metrics-grid { 
+        grid-template-columns: 1fr; 
+    }
+    
+    .header-filters { 
+        width: 100%; 
+        flex-direction: column; 
+        align-items: stretch;
+        gap: 1rem; 
+    }
+    
+    .header-filters .filter-select {
+        width: 100%;
+    }
+    
+    .header-filters button { 
+        margin-left: 0 !important; 
+        width: 100%; 
+    }
+    
+    .table-container { 
+        overflow-x: auto; 
+        -webkit-overflow-scrolling: touch; 
+        margin-left: -1rem;
+        margin-right: -1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    
+    table { 
+        min-width: 800px; 
+    }
+    
+    .stat-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
 }

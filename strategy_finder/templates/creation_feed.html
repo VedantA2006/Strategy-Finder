@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Creation Feed — Strategy Finder</title>
-    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link rel="stylesheet" href="/static/style.css?v=3">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <style>
         .feed-layout {
@@ -165,6 +165,27 @@
             border-radius: 6px;
             font-size: 0.8rem;
             width: 150px;
+        }
+
+        @media (max-width: 900px) {
+            .feed-layout {
+                grid-template-columns: 1fr;
+                height: auto;
+                overflow: visible;
+            }
+            .feed-panel {
+                height: 60vh;
+            }
+            .feed-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: stretch;
+            }
+            .filter-bar {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
         }
     </style>
 </head>
