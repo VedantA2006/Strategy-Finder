@@ -263,7 +263,7 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
                 
                 if partial_pnl > 0 and pnl > 0: is_win = True
                 elif partial_pnl > 0 and pnl <= 0: is_win = False # or true depending on net
-                is_win = pnl > 0
+                is_win = bool(pnl > 0)
 
                 balance_before = balance
                 balance += pnl
@@ -274,19 +274,19 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
                     "entry_time": position["entry_time"],
                     "exit_time": timestamps[i],
                     "direction": direction,
-                    "entry_price": entry_price,
-                    "exit_price": actual_exit,
-                    "sl": sl,
-                    "tp": tp,
-                    "atr_entry": position["atr_now"],
-                    "exit_reason": exit_reason,
-                    "pnl": pnl,
-                    "win": is_win,
-                    "balance_before": balance_before,
-                    "balance_after": balance,
-                    "sl_mult_used": strategy.sl_mult,
-                    "rr_ratio_used": strategy.rr_ratio,
-                    "duration_hours": (pd.to_datetime(timestamps[i]) - pd.to_datetime(position["entry_time"])).total_seconds() / 3600.0,
+                    "entry_price": float(entry_price),
+                    "exit_price": float(actual_exit),
+                    "sl": float(sl),
+                    "tp": float(tp),
+                    "atr_entry": float(position["atr_now"]),
+                    "exit_reason": str(exit_reason),
+                    "pnl": float(pnl),
+                    "win": bool(is_win),
+                    "balance_before": float(balance_before),
+                    "balance_after": float(balance),
+                    "sl_mult_used": float(strategy.sl_mult),
+                    "rr_ratio_used": float(strategy.rr_ratio),
+                    "duration_hours": float((pd.to_datetime(timestamps[i]) - pd.to_datetime(position["entry_time"])).total_seconds() / 3600.0),
                     "regime": "bull" if ema_slope[i] > 0.1 else ("bear" if ema_slope[i] < -0.1 else "sideways")
                 })
                 equity.append(balance)
