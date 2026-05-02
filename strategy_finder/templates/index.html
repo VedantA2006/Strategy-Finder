@@ -7,6 +7,21 @@
     <meta name="description" content="Autonomous trading strategy discovery system">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+    <style>
+        .nav-pulse-dot {
+            height: 8px; width: 8px;
+            background-color: #94a3b8;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+            transition: all 0.2s;
+        }
+        .nav-pulse-dot.active {
+            background-color: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+        }
+    </style>
 </head>
 <body>
 
@@ -209,5 +224,26 @@
         rows.forEach(r => tbody.appendChild(r));
     }
 </script>
+
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<script>
+    if (typeof io !== 'undefined') {
+        const socket_nav = io();
+        const pulseDot = document.getElementById('global-nav-pulse');
+        let navLastEventTime = 0;
+        
+        socket_nav.on('strategy_event', () => {
+            navLastEventTime = Date.now();
+            if(pulseDot) pulseDot.classList.add('active');
+        });
+        
+        setInterval(() => {
+            if (pulseDot && Date.now() - navLastEventTime > 5000) {
+                pulseDot.classList.remove('active');
+            }
+        }, 1000);
+    }
+</script>
 </body>
+
 </html>

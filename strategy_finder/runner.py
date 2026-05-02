@@ -29,6 +29,16 @@ import requests
 
 
 
+
+import datetime
+
+def now_iso():
+    return datetime.datetime.utcnow().isoformat() + "Z"
+
+def emit_event(queue, event_name, payload):
+    if queue:
+        queue.put({"event": event_name, "data": payload})
+
 def prune_conditions(strategy: Strategy, data: pd.DataFrame) -> Strategy:
     import copy
     from generator import _split_clauses
@@ -88,19 +98,48 @@ def run_holdout_eval(strategy: Strategy, full_data: pd.DataFrame) -> None:
         strategy.holdout_trades = res["metrics"]["total_trades"]
 
 def _evaluate_worker(args: tuple) -> Strategy | None:
-    s, data, eth_data = args
+    s, data, eth_data, event_queue = args
+    
+    emit_event(event_queue, "strategy_event", {
+        "phase": "created",
+        "id": s.id[:8],
+        "name": s.name,
+        "asset": s.asset,
+        "generation": s.generation,
+        "origin": getattr(s, "_origin", "random"),
+        "buy_conditions": s.buy_conditions,
+        "sell_conditions": s.sell_conditions,
+        "sl_mult": s.sl_mult,
+        "rr_ratio": s.rr_ratio,
+        "trail_mult": s.trail_mult,
+        "tp1_ratio": s.tp1_ratio,
+        "atr_gate": s.atr_gate,
+        "cooldown": s.cooldown,
+        "complexity": s.condition_complexity,
+        "n_timeframes": s.n_timeframes_used,
+        "timestamp": now_iso()
+    })
     
     # Fast reject filter (last 6 months, ~17280 bars of 15m)
     recent_data = data.iloc[-17280:].copy() if len(data) > 17280 else data.copy()
     quick_res = _run_engine(recent_data, s, "val")
     if quick_res is None:
+        emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "engine_failed", "value": 0, "timestamp": now_iso()})
         return None
         
     qm = quick_res["metrics"]
-    if qm["max_drawdown"] > 8.0: return None
-    if qm["win_rate"] < 48.0 or qm["win_rate"] > 78.0: return None
-    if qm["avg_trades_per_month"] < 3.0: return None
-    if qm["total_trades"] < 10: return None
+    if qm["max_drawdown"] > 8.0: 
+        emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "drawdown", "value": qm["max_drawdown"], "timestamp": now_iso()})
+        return None
+    if qm["win_rate"] < 48.0 or qm["win_rate"] > 78.0: 
+        emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "win_rate", "value": qm["win_rate"], "timestamp": now_iso()})
+        return None
+    if qm["avg_trades_per_month"] < 3.0: 
+        emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "trade_freq", "value": qm["avg_trades_per_month"], "timestamp": now_iso()})
+        return None
+    if qm["total_trades"] < 10: 
+        emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "trade_count", "value": qm["total_trades"], "timestamp": now_iso()})
+        return None
 
     import json
     orig_complexity = s.condition_complexity
@@ -115,10 +154,12 @@ def _evaluate_worker(args: tuple) -> Strategy | None:
     # Full backtest
     res = backtest(data, s)
     if res is None:
+        emit_event(event_queue, "strategy_event", {"phase": "backtest_failed", "id": s.id[:8], "timestamp": now_iso()})
         return None
         
     # Robustness pipeline
     if not run_robustness(s, data, res):
+        emit_event(event_queue, "strategy_event", {"phase": "robustness_failed", "id": s.id[:8], "reason": "mc_drawdown", "value": getattr(s, "mc_drawdown_p95", 0), "threshold": 0, "timestamp": now_iso()})
         return None
         
     s.metrics = res["metrics"]
@@ -130,6 +171,8 @@ def _evaluate_worker(args: tuple) -> Strategy | None:
             if eth_res and score(eth_res["metrics"], s) > 0:
                 s.metrics["score"] *= 1.2
         return s
+    
+    emit_event(event_queue, "strategy_event", {"phase": "scored_out", "id": s.id[:8], "score": s.metrics["score"], "reason": "score_failed", "timestamp": now_iso()})
     return None
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
@@ -275,6 +318,20 @@ def tournament_selection(population: list[Strategy], k: int = 5) -> Strategy:
     return max(contenders, key=lambda s: s.metrics.get("score", -999))
 
 
+import threading
+def event_drainer(q):
+    import requests
+    while True:
+        try:
+            item = q.get()
+            if item is None: break
+            try:
+                requests.post("http://localhost:5000/api/emit", json=item, timeout=0.5)
+            except:
+                pass
+        except:
+            pass
+
 def run_forever() -> None:
     """Main discovery loop — runs until interrupted."""
     log.info("=" * 60)
@@ -291,6 +348,13 @@ def run_forever() -> None:
     db = StrategyDatabase()
     optimizer = StrategyOptimizer()
     generation = 0
+    
+    m = multiprocessing.Manager()
+    event_queue = m.Queue()
+    drainer = threading.Thread(target=event_drainer, args=(event_queue,), daemon=True)
+    drainer.start()
+    
+    current_all_time_best = db.top1().metrics.get("score", 0) if db.top1() else 0
     
     # Replay GP memory
     obs = db.load_gp_observations()
@@ -324,6 +388,9 @@ def run_forever() -> None:
         # Elitism: top 5 survive exactly as they are
         population.sort(key=lambda s: s.metrics.get("score", -999), reverse=True)
         elites = copy.deepcopy(population[:5])
+        for e in elites:
+            e._origin = "elite"
+            e.generation = generation
         batch.extend(elites)
         
         # Diversity check
@@ -332,7 +399,9 @@ def run_forever() -> None:
         if diversity < 0.6 and len(population) >= 10:
             log.info(f"Diversity low ({diversity:.2f}). Injecting 10 randoms.")
             for _ in range(10):
-                batch.append(generate_random_strategy(generation, random.choice(ASSETS)))
+                c = generate_random_strategy(generation, random.choice(ASSETS))
+                c._origin = "random"
+                batch.append(c)
                 
         # Fill remainder of batch to reach 50
         while len(batch) < 50:
@@ -348,17 +417,22 @@ def run_forever() -> None:
                         child.buy_conditions = f"({templ['clause']}) and {child.buy_conditions}"
                     else:
                         child.sell_conditions = f"({templ['clause']}) and {child.sell_conditions}"
+                    child._origin = "random"
                     batch.append(child)
                     continue
 
             if random.random() < 0.1:
-                batch.append(generate_random_strategy(generation, asset))
+                c = generate_random_strategy(generation, asset)
+                c._origin = "random"
+                batch.append(c)
                 continue
                 
             # 30% ML Suggested
             if random.random() < 0.3:
                 params = optimizer.suggest(asset, n=1)[0]
-                batch.append(build_strategy_from_params(params, generation, asset))
+                c = build_strategy_from_params(params, generation, asset)
+                c._origin = "ml_suggested"
+                batch.append(c)
                 continue
                 
             # 60% Genetic Crossover + Mutation
@@ -369,10 +443,13 @@ def run_forever() -> None:
                 child.asset = asset
                 child = mutate_strategy(child, generation, mut_config)
                 child._parent_score = p1.metrics.get("score", 0)
+                child._origin = "crossover"
                 batch.append(child)
                 mutations_attempted += 1
             else:
-                batch.append(generate_random_strategy(generation, asset))
+                c = generate_random_strategy(generation, asset)
+                c._origin = "random"
+                batch.append(c)
 
         # ── 3. Evaluate Batch ────────────────────────────────────────────
         next_population: list[Strategy] = []
@@ -380,7 +457,7 @@ def run_forever() -> None:
         scores_this_gen = []
         
         pool_size = max(1, multiprocessing.cpu_count() - 1)
-        tasks = [(s, asset_data[s.asset], asset_data.get("ETHUSDT") if s.asset == "BTCUSDT" else None) for s in batch]
+        tasks = [(s, asset_data[s.asset], asset_data.get("ETHUSDT") if s.asset == "BTCUSDT" else None, event_queue) for s in batch]
         
         with multiprocessing.Pool(pool_size) as pool:
             for s_res in pool.imap_unordered(_evaluate_worker, tasks):
@@ -392,10 +469,38 @@ def run_forever() -> None:
                         if s_res.metrics.get("score", 0) > s_res._parent_score:
                             mutations_improved += 1
                     
-                    # Update Holdout stats if adding to HoF (score > best of top 20 or top 20 not full)
-                    # For simplicity, if score > 5, run holdout
                     if s_res.metrics.get("score", 0) > 5.0:
                         run_holdout_eval(s_res, asset_data[s_res.asset])
+                        
+                    is_new_best = s_res.metrics.get("score", 0) > current_all_time_best
+                    if is_new_best: current_all_time_best = s_res.metrics.get("score", 0)
+                    
+                    emit_event(event_queue, "strategy_event", {
+                        "phase": "saved",
+                        "id": s_res.id[:8],
+                        "name": s_res.name,
+                        "score": s_res.metrics["score"],
+                        "cagr": s_res.metrics["cagr"],
+                        "win_rate": s_res.metrics["win_rate"],
+                        "max_drawdown": s_res.metrics["max_drawdown"],
+                        "sharpe": s_res.metrics["sharpe"],
+                        "profit_factor": s_res.metrics["profit_factor"],
+                        "avg_monthly_return": s_res.metrics.get("avg_monthly_return", 0),
+                        "walk_forward_ratio": getattr(s_res, "walk_forward_ratio", 0),
+                        "mc_drawdown_p95": getattr(s_res, "mc_drawdown_p95", 0),
+                        "is_new_best": is_new_best,
+                        "timestamp": now_iso()
+                    })
+                    
+                    # HoF event
+                    if s_res.metrics.get("score", 0) > 10.0: # simplified HoF gate
+                        emit_event(event_queue, "strategy_event", {
+                            "phase": "hall_of_fame",
+                            "id": s_res.id[:8],
+                            "name": s_res.name,
+                            "score": s_res.metrics["score"],
+                            "timestamp": now_iso()
+                        })
                     
                     db.save(s_res)
                     next_population.append(s_res)

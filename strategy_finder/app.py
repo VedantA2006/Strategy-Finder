@@ -241,6 +241,11 @@ def strategy_lineage(strategy_id: str):
     return jsonify(tree)
 
 
+
+@app.route("/feed")
+def creation_feed():
+    return render_template("creation_feed.html")
+
 @app.route("/live")
 def live_status():
     """Runner status page with live charts."""
