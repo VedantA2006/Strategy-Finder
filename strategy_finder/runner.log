@@ -221,3 +221,11 @@ TypeError: Object of type bool is not JSON serializable
 2026-05-03 01:54:25,790 [INFO] Gen    3 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0
 2026-05-03 01:55:26,461 [INFO] Gen    4 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0
 2026-05-03 01:56:40,935 [INFO] Gen    5 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0
+2026-05-03 02:04:28,069 [INFO] ============================================================
+2026-05-03 02:04:28,069 [INFO] Strategy Finder — Professional Discovery Engine
+2026-05-03 02:04:28,069 [INFO] ============================================================
+2026-05-03 02:04:28,069 [INFO] Loading data for BTCUSDT ...
+2026-05-03 02:04:37,472 [INFO] ============================================================
+2026-05-03 02:04:37,473 [INFO] Strategy Finder — Professional Discovery Engine
+2026-05-03 02:04:37,473 [INFO] ============================================================
+2026-05-03 02:04:37,473 [INFO] Loading data for BTCUSDT ...

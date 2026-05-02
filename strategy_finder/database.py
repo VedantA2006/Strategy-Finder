@@ -93,7 +93,7 @@ class StrategyDatabase:
                 diversity   REAL,
                 timestamp   TEXT
             );
-        """)
+
             CREATE TABLE IF NOT EXISTS gp_observations (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 asset       TEXT,
