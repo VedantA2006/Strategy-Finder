@@ -18,13 +18,13 @@ def score(metrics: dict, strategy: Strategy) -> float:
     # ── Hard gates — instant disqualification ────────────────────────────
     if metrics.get("dollar_rr", 0) < 1.5:
         return -999.0
-    if metrics.get("max_drawdown", 100) > 8.0:
+    if metrics.get("max_drawdown", 100) > 10.0:
         return -999.0
     if metrics.get("avg_trades_per_month", 0) < 3.0:
         return -999.0
     
     wr = metrics.get("win_rate", 0)
-    if wr < 48.0 or wr > 78.0:  # Overfitted high win rate disqualified
+    if wr < 50.0 or wr > 78.0:  # Overfitted high win rate disqualified
         return -999.0
         
     if metrics.get("total_trades", 0) < 30:

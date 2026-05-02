@@ -229,3 +229,7 @@ TypeError: Object of type bool is not JSON serializable
 2026-05-03 02:04:37,473 [INFO] Strategy Finder — Professional Discovery Engine
 2026-05-03 02:04:37,473 [INFO] ============================================================
 2026-05-03 02:04:37,473 [INFO] Loading data for BTCUSDT ...
+2026-05-03 02:05:05,062 [INFO] All market data loaded.
+2026-05-03 02:05:06,843 [INFO] Loaded 0 past GP observations from memory.
+2026-05-03 02:06:23,735 [INFO] Gen    1 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:07:35,191 [INFO] Gen    2 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
