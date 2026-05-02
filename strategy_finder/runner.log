@@ -149,3 +149,65 @@ UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 
 2026-05-03 00:14:17,228 [INFO] Gen  121 | Tested  25 | Scored   5 | DB: 100 | Top:    23.25
 2026-05-03 00:15:07,083 [INFO] Gen  122 | Tested  25 | Scored   3 | DB: 100 | Top:    23.25
 2026-05-03 00:16:11,368 [INFO] Gen  123 | Tested  25 | Scored   2 | DB: 100 | Top:    23.25
+2026-05-03 01:43:07,076 [INFO] ============================================================
+2026-05-03 01:43:07,076 [INFO] Strategy Finder — Professional Discovery Engine
+2026-05-03 01:43:07,076 [INFO] ============================================================
+2026-05-03 01:43:07,078 [INFO] Loading data for BTCUSDT ...
+2026-05-03 01:43:26,669 [ERROR] Fatal error: assignment destination is read-only
+Traceback (most recent call last):
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 344, in <module>
+    run_forever()
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 218, in run_forever
+    asset_data[asset] = load_data(asset)
+                        ^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\indicators.py", line 395, in load_data
+    enriched = _compute_indicators(raw.copy(), tf_label)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\indicators.py", line 310, in _compute_indicators
+    lb_arr[i] = lb_arr[i-1]
+    ~~~~~~^^^
+ValueError: assignment destination is read-only
+2026-05-03 01:44:23,915 [INFO] ============================================================
+2026-05-03 01:44:23,915 [INFO] Strategy Finder — Professional Discovery Engine
+2026-05-03 01:44:23,916 [INFO] ============================================================
+2026-05-03 01:44:23,916 [INFO] Loading data for BTCUSDT ...
+2026-05-03 01:44:51,146 [INFO] Loading data for ETHUSDT ...
+2026-05-03 01:45:23,475 [INFO] Loading data for SOLUSDT ...
+2026-05-03 01:45:48,456 [INFO] All market data loaded.
+2026-05-03 01:48:34,565 [ERROR] Fatal error: Object of type bool is not JSON serializable
+multiprocessing.pool.RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\multiprocessing\pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+                    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 46, in _evaluate_worker
+    res = backtest(data, s)
+          ^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\backtest.py", line 78, in backtest
+    strategy.trade_log_json = json.dumps(safe_trades)
+                              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\json\__init__.py", line 231, in dumps
+    return _default_encoder.encode(obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py", line 200, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py", line 258, in iterencode
+    return _iterencode(o, 0)
+           ^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py", line 180, in default
+    raise TypeError(f'Object of type {o.__class__.__name__} '
+TypeError: Object of type bool is not JSON serializable
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 344, in <module>
+    run_forever()
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 290, in run_forever
+    for s_res in pool.imap_unordered(_evaluate_worker, tasks):
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\multiprocessing\pool.py", line 873, in next
+    raise value
+TypeError: Object of type bool is not JSON serializable

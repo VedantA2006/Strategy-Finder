@@ -56,7 +56,7 @@ TIMEFRAMES = [
 ]
 
 # Assets supported
-ASSETS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+ASSETS = ["BTCUSDT"]
 
 # Years of data to fetch
 DATA_YEARS = 5
@@ -293,9 +293,9 @@ def _compute_indicators(df: pd.DataFrame, tf_label: str) -> pd.DataFrame:
     basic_ub = hl2 + (3 * atr10)
     basic_lb = hl2 - (3 * atr10)
     
-    c_arr = c.values
-    ub_arr = basic_ub.values
-    lb_arr = basic_lb.values
+    c_arr = c.values.copy()
+    ub_arr = basic_ub.values.copy()
+    lb_arr = basic_lb.values.copy()
     st_arr = np.zeros(len(c))
     dir_arr = np.ones(len(c))
     
