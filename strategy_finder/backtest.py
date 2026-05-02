@@ -442,13 +442,8 @@ def _compute_metrics(trades: list[dict], equity: list[float], df: pd.DataFrame, 
     avg_loss = np.mean([abs(t["pnl"]) for t in losses]) if losses else 1.0
     dollar_rr = float(avg_win / avg_loss) if avg_loss > 0 else 0.0
 
-    # P-value calculation (Binomial test vs 50% random coin flip)
-    p_value = 1.0
-    if len(trades) > 0:
-        actual_wins = len(wins)
-        n_trades = len(trades)
-        better_or_equal = sum(1 for _ in range(1000) if sum(random.random() < 0.5 for _ in range(n_trades)) >= actual_wins)
-        p_value = better_or_equal / 1000.0
+    # P-value skipped in hot path — computed only in holdout eval
+    p_value = 0.0
 
     metrics = {
         "total_return_pct":     round(total_return_pct, 2),

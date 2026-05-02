@@ -289,3 +289,16 @@ KeyError: 'metrics'
 2026-05-03 02:34:44,024 [INFO] Gen    6 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
 2026-05-03 02:35:49,887 [INFO] Gen    7 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
 2026-05-03 02:37:01,057 [INFO] Gen    8 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:38:28,689 [INFO] Gen    9 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:39:58,863 [INFO] Gen   10 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:40:16,543 [INFO] Stopped by user (Ctrl+C)
+2026-05-03 02:40:46,606 [INFO] Gen    5 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:42:00,829 [INFO] Gen    6 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:43:07,929 [INFO] ============================================================
+2026-05-03 02:43:07,931 [INFO] Strategy Finder - Professional Discovery Engine
+2026-05-03 02:43:07,931 [INFO] ============================================================
+2026-05-03 02:43:07,931 [INFO] Loading data for BTCUSDT ...
+2026-05-03 02:43:36,536 [INFO] All market data loaded.
+2026-05-03 02:43:38,253 [INFO] Loaded 0 past GP observations from memory.
+2026-05-03 02:48:17,910 [INFO] Gen    1 | Tested 200 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:53:17,075 [INFO] Gen    2 | Tested 200 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0

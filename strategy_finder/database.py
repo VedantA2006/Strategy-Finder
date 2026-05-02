@@ -1,182 +1,177 @@
 """
-database.py — SQLite persistence for Strategy Finder.
+database.py — MongoDB persistence for Strategy Finder.
 
 Features:
-  - Extended schema for multi-asset and robustness metrics.
-  - Hall of Fame table to permanently protect top strategies.
-  - Generation stats table with diversity tracking.
+  - MongoDB backend for multi-asset and robustness metrics.
+  - Hall of Fame collection to permanently protect top strategies.
+  - Generation stats collection with diversity tracking.
+  - GP observations with capped replay.
+  - Condition templates with upsert + running average.
 """
 
 from __future__ import annotations
 
+import os
 import json
-import sqlite3
 import datetime
 import pathlib
 from typing import Optional
 
+from pymongo import MongoClient, DESCENDING, ASCENDING
 from strategy import Strategy
 
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
+DB_NAME = "strategy_finder"
 
-DB_PATH = pathlib.Path(__file__).parent / "strategies.db"
+
+class _ResultShim:
+    """Shim to emulate SQLite cursor result for runner.py meta-learning code."""
+    def __init__(self, rows):
+        self._rows = rows
+
+    def fetchall(self):
+        return [_DictRow(r) for r in self._rows]
+
+    def fetchone(self):
+        return _DictRow(self._rows[0]) if self._rows else None
+
+    def __iter__(self):
+        return iter([_DictRow(r) for r in self._rows])
+
+
+class _DictRow(dict):
+    """Dict subclass that supports both dict key access and sqlite3.Row-style access."""
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+    def keys(self):
+        return super().keys()
 
 
 class StrategyDatabase:
-    """Thread-safe SQLite wrapper for strategy storage."""
+    """MongoDB wrapper for strategy storage — drop-in replacement for SQLite version."""
 
-    def __init__(self, db_path: str | pathlib.Path = DB_PATH):
-        self.db_path = str(db_path)
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.row_factory = sqlite3.Row
-        self._create_tables()
+    def __init__(self, mongo_uri: str = MONGO_URI, db_name: str = DB_NAME):
+        self.client = MongoClient(mongo_uri)
+        self.db = self.client[db_name]
 
-    def _create_tables(self) -> None:
-        self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS strategies (
-                id              TEXT PRIMARY KEY,
-                name            TEXT,
-                generation      INTEGER,
-                asset           TEXT,
-                params_json     TEXT,
-                buy_conditions  TEXT,
-                sell_conditions TEXT,
-                
-                -- Standard Backtest Metrics
-                total_return    REAL,
-                cagr            REAL,
-                win_rate        REAL,
-                dollar_rr       REAL,
-                profit_factor   REAL,
-                max_drawdown    REAL,
-                max_dd_duration INTEGER,
-                sharpe          REAL,
-                trades_per_month REAL,
-                score           REAL,
-                
-                -- Robustness Metrics
-                walk_forward_ratio REAL,
-                mc_drawdown_p95 REAL,
-                parameter_sensitivity REAL,
-                regime_bull_wr REAL,
-                regime_bear_wr REAL,
-                regime_sideways_wr REAL,
-                validation_cagr REAL,
-                p_value REAL DEFAULT 1.0,
-                is_correlated INTEGER DEFAULT 0,
-                avg_monthly_return REAL DEFAULT 0.0,
-                overfit_score REAL DEFAULT 0.0,
-                
-                -- Complexity Metrics
-                condition_complexity INTEGER,
-                n_timeframes_used INTEGER,
-                
-                -- JSON Blobs
-                equity_curve    TEXT,
-                monthly_returns_json TEXT,
-                trade_log_json  TEXT,
-                deep_stats_json TEXT,
-                
-                created_at      TEXT
-            );
+        # Collections
+        self.strategies_col = self.db["strategies"]
+        self.hof_col = self.db["hall_of_fame"]
+        self.gp_col = self.db["gp_observations"]
+        self.cat_stats_col = self.db["category_stats"]
+        self.cond_templates_col = self.db["condition_templates"]
+        self.gen_stats_col = self.db["generation_stats"]
 
-            CREATE TABLE IF NOT EXISTS hall_of_fame (
-                id TEXT PRIMARY KEY,
-                added_at TEXT
-            );
+        self._create_indexes()
 
-            CREATE TABLE IF NOT EXISTS generation_stats (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                generation  INTEGER,
-                tested      INTEGER,
-                best_score  REAL,
-                mean_score  REAL,
-                diversity   REAL,
-                timestamp   TEXT
-            );
+    # Expose conn-like access for runner.py meta-learning that calls db.conn.execute(...)
+    # This shim provides a compatible interface
+    class _ConnShim:
+        def __init__(self, db_ref):
+            self._db = db_ref
 
-            CREATE TABLE IF NOT EXISTS gp_observations (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                asset       TEXT,
-                params_json TEXT,
-                score       REAL,
-                recorded_at TEXT
-            );
-            
-            CREATE TABLE IF NOT EXISTS category_stats (
-                category    TEXT PRIMARY KEY,
-                appearances_top20   INTEGER DEFAULT 0,
-                appearances_total   INTEGER DEFAULT 0,
-                updated_at  TEXT
-            );
-            
-            CREATE TABLE IF NOT EXISTS condition_templates (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                clause      TEXT UNIQUE,
-                times_in_top20  INTEGER DEFAULT 0,
-                avg_score_when_present  REAL DEFAULT 0.0,
-                direction   TEXT,
-                updated_at  TEXT
-            );
-        """)
-        # Safe alter for existing DBs
-        try:
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN p_value REAL DEFAULT 1.0")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN is_correlated INTEGER DEFAULT 0")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN avg_monthly_return REAL DEFAULT 0.0")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN overfit_score REAL DEFAULT 0.0")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN deep_stats_json TEXT")
-        except sqlite3.OperationalError:
-            pass
-            
-        try:
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN parent_a_id TEXT DEFAULT ''")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN parent_b_id TEXT DEFAULT ''")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN holdout_cagr REAL DEFAULT 0.0")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN holdout_win_rate REAL DEFAULT 0.0")
-            self.conn.execute("ALTER TABLE strategies ADD COLUMN holdout_trades INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
-            
-        self.conn.commit()
+        def execute(self, sql: str, params=None):
+            """Shim that intercepts SQL-style calls from runner.py meta-learning and maps to MongoDB."""
+            sql_lower = sql.strip().lower()
 
-    # ── CRUD ─────────────────────────────────────────────────────────────
+            if sql_lower.startswith("select clause, direction from condition_templates"):
+                rows = list(self._db.cond_templates_col.find(
+                    {}, {"clause": 1, "direction": 1, "_id": 0}
+                ).sort("times_in_top20", -1).limit(5))
+                return _ResultShim(rows)
+
+            elif sql_lower.startswith("update category_stats set appearances_top20 = 0"):
+                self._db.cat_stats_col.update_many({}, {"$set": {"appearances_top20": 0}})
+                return _ResultShim([])
+
+            elif sql_lower.startswith("insert or ignore into category_stats"):
+                if params:
+                    self._db.cat_stats_col.update_one(
+                        {"category": params[0]},
+                        {"$setOnInsert": {"category": params[0], "appearances_top20": 0, "appearances_total": 0, "updated_at": params[1]}},
+                        upsert=True
+                    )
+                return _ResultShim([])
+
+            elif sql_lower.startswith("update category_stats set appearances_total"):
+                if params:
+                    self._db.cat_stats_col.update_one(
+                        {"category": params[0]},
+                        {"$inc": {"appearances_total": 1}}
+                    )
+                return _ResultShim([])
+
+            elif sql_lower.startswith("update category_stats set appearances_top20 = appearances_top20 + 1"):
+                if params:
+                    self._db.cat_stats_col.update_one(
+                        {"category": params[0]},
+                        {"$inc": {"appearances_top20": 1}}
+                    )
+                return _ResultShim([])
+
+            elif sql_lower.startswith("insert into condition_templates"):
+                if params:
+                    clause = params[0]
+                    score_val = params[1]
+                    updated_at = params[2]
+                    direction = "buy"
+                    if "'sell'" in sql_lower or (len(params) > 3 and "sell" in str(params)):
+                        direction = "sell"
+                    # Determine direction from SQL
+                    if "?, 'buy'" in sql.lower():
+                        direction = "buy"
+                    elif "?, 'sell'" in sql.lower():
+                        direction = "sell"
+                    
+                    existing = self._db.cond_templates_col.find_one({"clause": clause})
+                    if existing:
+                        old_count = existing.get("times_in_top20", 0)
+                        old_avg = existing.get("avg_score_when_present", 0.0)
+                        new_avg = ((old_avg * old_count) + score_val) / (old_count + 1)
+                        self._db.cond_templates_col.update_one(
+                            {"clause": clause},
+                            {"$set": {"avg_score_when_present": new_avg, "updated_at": updated_at},
+                             "$inc": {"times_in_top20": 1}}
+                        )
+                    else:
+                        self._db.cond_templates_col.insert_one({
+                            "clause": clause,
+                            "direction": direction,
+                            "times_in_top20": 1,
+                            "avg_score_when_present": score_val,
+                            "updated_at": updated_at
+                        })
+                return _ResultShim([])
+
+            elif sql_lower.startswith("select * from category_stats"):
+                rows = list(self._db.cat_stats_col.find({}, {"_id": 0}))
+                return _ResultShim(rows)
+
+            return _ResultShim([])
+
+        def commit(self):
+            pass  # MongoDB auto-commits
+
+    @property
+    def conn(self):
+        """Compatibility shim for runner.py meta-learning code that calls db.conn.execute(...)"""
+        return self._ConnShim(self)
+
+    def _create_indexes(self) -> None:
+        self.strategies_col.create_index([("score", DESCENDING)])
+        self.strategies_col.create_index([("is_correlated", ASCENDING)])
+        self.strategies_col.create_index([("asset", ASCENDING)])
+        self.strategies_col.create_index([("created_at", DESCENDING)])
+        self.gp_col.create_index([("_id", DESCENDING)])
+        self.cond_templates_col.create_index([("clause", ASCENDING)], unique=True)
+
+    # ── Save / Retrieve ──────────────────────────────────────────────────
 
     def save(self, s: Strategy) -> None:
-        """Insert or replace a strategy with its metrics."""
-        # Correlation check
-        s.is_correlated = False
-        if s.trade_log_json and s.metrics.get("score", -999) > -999:
-            try:
-                top10 = self.top_n(10)
-                if top10:
-                    import pandas as pd
-                    new_trades = json.loads(s.trade_log_json)
-                    if new_trades:
-                        df_new = pd.DataFrame(new_trades)
-                        df_new['exit_time'] = pd.to_datetime(df_new['exit_time'])
-                        df_new.set_index('exit_time', inplace=True)
-                        daily_new = df_new['pnl'].resample('D').sum().fillna(0)
-                        
-                        for top_s in top10:
-                            if not top_s.trade_log_json or top_s.trade_log_json == "[]": continue
-                            top_trades = json.loads(top_s.trade_log_json)
-                            if not top_trades: continue
-                            df_top = pd.DataFrame(top_trades)
-                            df_top['exit_time'] = pd.to_datetime(df_top['exit_time'])
-                            df_top.set_index('exit_time', inplace=True)
-                            daily_top = df_top['pnl'].resample('D').sum().fillna(0)
-                            
-                            idx = daily_new.index.intersection(daily_top.index)
-                            if len(idx) > 30:
-                                corr = daily_new.loc[idx].corr(daily_top.loc[idx])
-                                if corr > 0.85:
-                                    s.is_correlated = True
-                                    break
-            except Exception as e:
-                pass
-
-        m = s.metrics
+        """Save or update a strategy in MongoDB."""
         params = {
             "sl_mult": s.sl_mult,
             "rr_ratio": s.rr_ratio,
@@ -185,135 +180,81 @@ class StrategyDatabase:
             "trail_mult": s.trail_mult,
             "tp1_ratio": s.tp1_ratio,
         }
-        
-        avg_monthly = m.get("avg_monthly_return", 0.0)
-        overfit_score = 1.0 - s.walk_forward_ratio if s.walk_forward_ratio else 0.0
-        
-        deep_stats = {k: v for k, v in m.items() if k not in ("equity_curve",)}
-        
-        self.conn.execute("""
-            INSERT OR REPLACE INTO strategies
-            (id, name, generation, asset, parent_a_id, parent_b_id, params_json, buy_conditions, sell_conditions,
-             total_return, cagr, win_rate, dollar_rr, profit_factor,
-             max_drawdown, max_dd_duration, sharpe, trades_per_month, score,
-             walk_forward_ratio, mc_drawdown_p95, parameter_sensitivity,
-             regime_bull_wr, regime_bear_wr, regime_sideways_wr, validation_cagr,
-             p_value, is_correlated, avg_monthly_return, overfit_score,
-             condition_complexity, n_timeframes_used,
-             holdout_cagr, holdout_win_rate, holdout_trades,
-             equity_curve, monthly_returns_json, trade_log_json, deep_stats_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?)
-        """, (
-            s.id, s.name, s.generation, s.asset, s.parent_a_id, s.parent_b_id,
-            json.dumps(params),
-            s.buy_conditions, s.sell_conditions,
-            
-            m.get("total_return_pct", 0),
-            m.get("cagr", 0),
-            m.get("win_rate", 0),
-            m.get("dollar_rr", 0),
-            m.get("profit_factor", 0),
-            m.get("max_drawdown", 0),
-            m.get("max_dd_duration", 0),
-            m.get("sharpe", 0),
-            m.get("avg_trades_per_month", 0),
-            m.get("score", -999),
-            
-            s.walk_forward_ratio,
-            s.mc_drawdown_p95,
-            s.parameter_sensitivity,
-            s.regime_bull_wr,
-            s.regime_bear_wr,
-            s.regime_sideways_wr,
-            s.validation_cagr,
-            
-            m.get("p_value", 1.0),
-            1 if s.is_correlated else 0,
-            avg_monthly,
-            overfit_score,
-            
-            s.condition_complexity,
-            s.n_timeframes_used,
-            
-            s.holdout_cagr,
-            s.holdout_win_rate,
-            s.holdout_trades,
-            
-            json.dumps(m.get("equity_curve", [])),
-            s.monthly_returns_json,
-            s.trade_log_json,
-            json.dumps(deep_stats),
-            datetime.datetime.utcnow().isoformat(),
-        ))
-        self.conn.commit()
 
-        # Check if it should be in Hall of Fame (top 20)
+        doc = {
+            "id": s.id,
+            "name": s.name,
+            "generation": s.generation,
+            "asset": s.asset,
+            "params_json": json.dumps(params),
+            "buy_conditions": s.buy_conditions,
+            "sell_conditions": s.sell_conditions,
+            "total_return": s.metrics.get("total_return_pct", 0),
+            "cagr": s.metrics.get("cagr", 0),
+            "win_rate": s.metrics.get("win_rate", 0),
+            "dollar_rr": s.metrics.get("dollar_rr", 0),
+            "profit_factor": s.metrics.get("profit_factor", 0),
+            "max_drawdown": s.metrics.get("max_drawdown", 0),
+            "max_dd_duration": s.metrics.get("max_dd_duration", 0),
+            "sharpe": s.metrics.get("sharpe", 0),
+            "trades_per_month": s.metrics.get("avg_trades_per_month", 0),
+            "score": s.metrics.get("score", -999),
+            "walk_forward_ratio": s.walk_forward_ratio,
+            "mc_drawdown_p95": s.mc_drawdown_p95,
+            "parameter_sensitivity": s.parameter_sensitivity,
+            "regime_bull_wr": s.regime_bull_wr,
+            "regime_bear_wr": s.regime_bear_wr,
+            "regime_sideways_wr": s.regime_sideways_wr,
+            "validation_cagr": getattr(s, "validation_cagr", 0),
+            "p_value": getattr(s, "p_value", 0.0),
+            "is_correlated": int(getattr(s, "is_correlated", False)),
+            "avg_monthly_return": s.metrics.get("avg_monthly_return", 0),
+            "overfit_score": s.metrics.get("overfit_score", 0),
+            "condition_complexity": s.condition_complexity,
+            "n_timeframes_used": s.n_timeframes_used,
+            "equity_curve": json.dumps(s.metrics.get("equity_curve", [])),
+            "monthly_returns_json": getattr(s, "monthly_returns_json", "[]"),
+            "trade_log_json": getattr(s, "trade_log_json", "[]"),
+            "parent_a_id": getattr(s, "parent_a_id", ""),
+            "parent_b_id": getattr(s, "parent_b_id", ""),
+            "holdout_cagr": getattr(s, "holdout_cagr", 0.0),
+            "holdout_win_rate": getattr(s, "holdout_win_rate", 0.0),
+            "holdout_trades": getattr(s, "holdout_trades", 0),
+            "deep_stats_json": getattr(s, "deep_stats_json", "{}"),
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        }
+
+        self.strategies_col.replace_one({"id": s.id}, doc, upsert=True)
         self._update_hall_of_fame()
 
     def _update_hall_of_fame(self) -> None:
         """Maintain top 20 all-time highest scoring valid strategies."""
-        # Get top 20
-        rows = self.conn.execute("""
-            SELECT id FROM strategies 
-            WHERE score > -999 
-            ORDER BY score DESC LIMIT 20
-        """).fetchall()
-        top_ids = [r["id"] for r in rows]
+        rows = list(self.strategies_col.find(
+            {"score": {"$gt": -999}},
+            {"id": 1, "_id": 0}
+        ).sort("score", DESCENDING).limit(20))
 
-        # Insert new ones
-        for strat_id in top_ids:
-            self.conn.execute("""
-                INSERT OR IGNORE INTO hall_of_fame (id, added_at)
-                VALUES (?, ?)
-            """, (strat_id, datetime.datetime.utcnow().isoformat()))
-        
-        # We NEVER remove from Hall of Fame per requirements!
-        self.conn.commit()
-
-    # ── GP Memory ────────────────────────────────────────────────────────
-    
-    def save_gp_observation(self, asset: str, params_vector: list[float], score: float) -> None:
-        self.conn.execute("""
-            INSERT INTO gp_observations (asset, params_json, score, recorded_at)
-            VALUES (?, ?, ?, ?)
-        """, (asset, json.dumps(params_vector), score, datetime.datetime.utcnow().isoformat()))
-        self.conn.commit()
-
-    def load_gp_observations(self) -> dict[str, list[tuple[list[float], float]]]:
-        rows = self.conn.execute("SELECT asset, params_json, score FROM gp_observations ORDER BY id DESC LIMIT 5000").fetchall()
-        obs = {}
-        for r in rows:
-            asset = r["asset"]
-            if asset not in obs:
-                obs[asset] = []
-            obs[asset].append((json.loads(r["params_json"]), r["score"]))
-        return obs
+        for row in rows:
+            self.hof_col.update_one(
+                {"id": row["id"]},
+                {"$setOnInsert": {"id": row["id"], "added_at": datetime.datetime.utcnow().isoformat()}},
+                upsert=True
+            )
 
     def get(self, strategy_id: str) -> Optional[Strategy]:
         """Fetch a single strategy by ID."""
-        row = self.conn.execute(
-            "SELECT * FROM strategies WHERE id = ?", (strategy_id,)
-        ).fetchone()
+        row = self.strategies_col.find_one({"id": strategy_id})
         if row is None:
             return None
-        return self._row_to_strategy(row)
+        return self._doc_to_strategy(row)
 
     def top_n(self, n: int = 20, asset: str = None) -> list[Strategy]:
         """Return top N valid strategies ordered by score descending."""
-        query = "SELECT * FROM strategies WHERE score > -999"
-        params = []
+        query = {"score": {"$gt": -999}}
         if asset:
-            query += " AND asset = ?"
-            params.append(asset)
-        query += " ORDER BY score DESC LIMIT ?"
-        params.append(n)
-        
-        rows = self.conn.execute(query, params).fetchall()
-        return [self._row_to_strategy(r) for r in rows]
+            query["asset"] = asset
+        rows = list(self.strategies_col.find(query).sort("score", DESCENDING).limit(n))
+        return [self._doc_to_strategy(r) for r in rows]
 
     def top1(self) -> Optional[Strategy]:
         """Return the single best strategy by score."""
@@ -322,64 +263,97 @@ class StrategyDatabase:
 
     def count(self) -> int:
         """Total strategies in the database."""
-        row = self.conn.execute("SELECT COUNT(*) FROM strategies").fetchone()
-        return row[0]
+        return self.strategies_col.count_documents({})
 
     def keep_top(self, n: int = 100) -> None:
-        """
-        Prune the database, keeping only the top N valid strategies,
-        BUT never delete any strategy that is in the Hall of Fame.
-        """
-        self.conn.execute(f"""
-            DELETE FROM strategies
-            WHERE id NOT IN (
-                SELECT id FROM strategies WHERE score > -999 ORDER BY score DESC LIMIT 20
-            )
-            AND id NOT IN (
-                SELECT id FROM strategies WHERE score > -999 AND is_correlated = 0 ORDER BY score DESC LIMIT 80
-            )
-            AND id NOT IN (SELECT id FROM hall_of_fame)
-        """)
-        self.conn.commit()
+        """Prune the database, keeping top strategies and Hall of Fame."""
+        # Get IDs to keep: top 20 by score + top 80 non-correlated + HoF
+        top_20_ids = [r["id"] for r in self.strategies_col.find(
+            {"score": {"$gt": -999}}, {"id": 1, "_id": 0}
+        ).sort("score", DESCENDING).limit(20)]
+
+        top_80_ids = [r["id"] for r in self.strategies_col.find(
+            {"score": {"$gt": -999}, "is_correlated": 0}, {"id": 1, "_id": 0}
+        ).sort("score", DESCENDING).limit(80)]
+
+        hof_ids = [r["id"] for r in self.hof_col.find({}, {"id": 1, "_id": 0})]
+
+        keep_ids = set(top_20_ids + top_80_ids + hof_ids)
+
+        if keep_ids:
+            self.strategies_col.delete_many({"id": {"$nin": list(keep_ids)}})
+
+    # ── GP Memory ────────────────────────────────────────────────────────
+
+    def save_gp_observation(self, asset: str, params_vector: list[float], score: float) -> None:
+        self.gp_col.insert_one({
+            "asset": asset,
+            "params_json": json.dumps(params_vector),
+            "score": score,
+            "recorded_at": datetime.datetime.utcnow().isoformat()
+        })
+
+    def load_gp_observations(self) -> dict[str, list[tuple[list[float], float]]]:
+        rows = list(self.gp_col.find({}).sort("_id", DESCENDING).limit(5000))
+        obs: dict[str, list[tuple[list[float], float]]] = {}
+        for r in rows:
+            asset = r["asset"]
+            if asset not in obs:
+                obs[asset] = []
+            obs[asset].append((json.loads(r["params_json"]), r["score"]))
+        return obs
 
     # ── Run logging ──────────────────────────────────────────────────────
 
     def log_run(self, generation: int, tested: int, best_score: float, mean_score: float, diversity: float) -> None:
-        self.conn.execute("""
-            INSERT INTO generation_stats (generation, tested, best_score, mean_score, diversity, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (generation, tested, best_score, mean_score, diversity,
-              datetime.datetime.utcnow().isoformat()))
-        self.conn.execute("DELETE FROM generation_stats WHERE id NOT IN (SELECT id FROM generation_stats ORDER BY id DESC LIMIT 1000)")
-        self.conn.commit()
+        self.gen_stats_col.insert_one({
+            "generation": generation,
+            "tested": tested,
+            "best_score": best_score,
+            "mean_score": mean_score,
+            "diversity": diversity,
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        })
+        # Keep only last 1000 generation stats
+        total = self.gen_stats_col.count_documents({})
+        if total > 1000:
+            oldest = list(self.gen_stats_col.find({}).sort("_id", ASCENDING).limit(total - 1000))
+            if oldest:
+                oldest_ids = [r["_id"] for r in oldest]
+                self.gen_stats_col.delete_many({"_id": {"$in": oldest_ids}})
 
     def recent_logs(self, n: int = 20) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT * FROM generation_stats ORDER BY id DESC LIMIT ?", (n,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        rows = list(self.gen_stats_col.find({}, {"_id": 0}).sort("_id", DESCENDING).limit(n))
+        return rows
 
     def today_stats(self) -> dict:
         """Return stats for today's run session."""
         today = datetime.date.today().isoformat()
-        row = self.conn.execute("""
-            SELECT COUNT(*) as runs, SUM(tested) as total_tested,
-                   MAX(best_score) as best_today
-            FROM generation_stats WHERE timestamp >= ?
-        """, (today,)).fetchone()
-        return {
-            "runs": row["runs"] or 0,
-            "total_tested": row["total_tested"] or 0,
-            "best_today": row["best_today"] or 0,
-        }
+        pipeline = [
+            {"$match": {"timestamp": {"$gte": today}}},
+            {"$group": {
+                "_id": None,
+                "runs": {"$sum": 1},
+                "total_tested": {"$sum": "$tested"},
+                "best_today": {"$max": "$best_score"}
+            }}
+        ]
+        result = list(self.gen_stats_col.aggregate(pipeline))
+        if result:
+            return {
+                "runs": result[0].get("runs", 0),
+                "total_tested": result[0].get("total_tested", 0),
+                "best_today": result[0].get("best_today", 0),
+            }
+        return {"runs": 0, "total_tested": 0, "best_today": 0}
 
     # ── Internal ─────────────────────────────────────────────────────────
 
-    def _row_to_strategy(self, row: sqlite3.Row) -> Strategy:
-        """Convert a database row to a Strategy object."""
-        params = json.loads(row["params_json"]) if row["params_json"] else {}
-        equity_curve = json.loads(row["equity_curve"]) if row["equity_curve"] else []
-        deep_stats = json.loads(row["deep_stats_json"]) if "deep_stats_json" in row.keys() and row["deep_stats_json"] else {}
+    def _doc_to_strategy(self, row: dict) -> Strategy:
+        """Convert a MongoDB document to a Strategy object."""
+        params = json.loads(row.get("params_json", "{}"))
+        equity_curve = json.loads(row.get("equity_curve", "[]"))
+        deep_stats = json.loads(row.get("deep_stats_json", "{}")) if row.get("deep_stats_json") else {}
 
         s = Strategy(
             id=row["id"],
@@ -394,41 +368,41 @@ class StrategyDatabase:
             tp1_ratio=params.get("tp1_ratio", 0.0),
             buy_conditions=row["buy_conditions"],
             sell_conditions=row["sell_conditions"],
-            
-            walk_forward_ratio=row["walk_forward_ratio"],
-            mc_drawdown_p95=row["mc_drawdown_p95"],
-            parameter_sensitivity=row["parameter_sensitivity"],
-            regime_bull_wr=row["regime_bull_wr"],
-            regime_bear_wr=row["regime_bear_wr"],
-            regime_sideways_wr=row["regime_sideways_wr"],
-            validation_cagr=row["validation_cagr"],
-            p_value=row["p_value"],
-            is_correlated=bool(row["is_correlated"]),
-            condition_complexity=row["condition_complexity"],
-            n_timeframes_used=row["n_timeframes_used"],
-            monthly_returns_json=row["monthly_returns_json"],
-            trade_log_json=row["trade_log_json"],
-            parent_a_id=row.keys() and "parent_a_id" in row.keys() and row["parent_a_id"] or "",
-            parent_b_id=row.keys() and "parent_b_id" in row.keys() and row["parent_b_id"] or "",
-            holdout_cagr=row.keys() and "holdout_cagr" in row.keys() and row["holdout_cagr"] or 0.0,
-            holdout_win_rate=row.keys() and "holdout_win_rate" in row.keys() and row["holdout_win_rate"] or 0.0,
-            holdout_trades=row.keys() and "holdout_trades" in row.keys() and row["holdout_trades"] or 0,
-            deep_stats_json=row.keys() and "deep_stats_json" in row.keys() and row["deep_stats_json"] or "{}",
-            
+
+            walk_forward_ratio=row.get("walk_forward_ratio", 0),
+            mc_drawdown_p95=row.get("mc_drawdown_p95", 0),
+            parameter_sensitivity=row.get("parameter_sensitivity", 0),
+            regime_bull_wr=row.get("regime_bull_wr", 0),
+            regime_bear_wr=row.get("regime_bear_wr", 0),
+            regime_sideways_wr=row.get("regime_sideways_wr", 0),
+            validation_cagr=row.get("validation_cagr", 0),
+            p_value=row.get("p_value", 0.0),
+            is_correlated=bool(row.get("is_correlated", 0)),
+            condition_complexity=row.get("condition_complexity", 0),
+            n_timeframes_used=row.get("n_timeframes_used", 0),
+            monthly_returns_json=row.get("monthly_returns_json", "[]"),
+            trade_log_json=row.get("trade_log_json", "[]"),
+            parent_a_id=row.get("parent_a_id", ""),
+            parent_b_id=row.get("parent_b_id", ""),
+            holdout_cagr=row.get("holdout_cagr", 0.0),
+            holdout_win_rate=row.get("holdout_win_rate", 0.0),
+            holdout_trades=row.get("holdout_trades", 0),
+            deep_stats_json=row.get("deep_stats_json", "{}"),
+
             metrics={
-                "total_return_pct":     row["total_return"],
-                "cagr":                 row["cagr"],
-                "win_rate":             row["win_rate"],
-                "dollar_rr":            row["dollar_rr"],
-                "profit_factor":        row["profit_factor"],
-                "max_drawdown":         row["max_drawdown"],
-                "max_dd_duration":      row["max_dd_duration"],
-                "sharpe":               row["sharpe"],
-                "avg_trades_per_month": row["trades_per_month"],
-                "p_value":              row["p_value"],
-                "score":                row["score"],
-                "avg_monthly_return":   row["avg_monthly_return"] if "avg_monthly_return" in row.keys() else 0.0,
-                "overfit_score":        row["overfit_score"] if "overfit_score" in row.keys() else 0.0,
+                "total_return_pct":     row.get("total_return", 0),
+                "cagr":                 row.get("cagr", 0),
+                "win_rate":             row.get("win_rate", 0),
+                "dollar_rr":            row.get("dollar_rr", 0),
+                "profit_factor":        row.get("profit_factor", 0),
+                "max_drawdown":         row.get("max_drawdown", 0),
+                "max_dd_duration":      row.get("max_dd_duration", 0),
+                "sharpe":               row.get("sharpe", 0),
+                "avg_trades_per_month": row.get("trades_per_month", 0),
+                "p_value":              row.get("p_value", 0.0),
+                "score":                row.get("score", -999),
+                "avg_monthly_return":   row.get("avg_monthly_return", 0.0),
+                "overfit_score":        row.get("overfit_score", 0.0),
                 "equity_curve":         equity_curve,
                 **deep_stats
             },
@@ -436,4 +410,4 @@ class StrategyDatabase:
         return s
 
     def close(self) -> None:
-        self.conn.close()
+        self.client.close()

@@ -4,4 +4,6 @@ requests
 ta
 scikit-learn
 flask
+flask-socketio
 pyarrow
+pymongo

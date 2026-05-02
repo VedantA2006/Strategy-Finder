@@ -99,6 +99,14 @@ def run_holdout_eval(strategy: Strategy, full_data: pd.DataFrame) -> None:
         strategy.holdout_cagr = res["metrics"]["cagr"]
         strategy.holdout_win_rate = res["metrics"]["win_rate"]
         strategy.holdout_trades = res["metrics"]["total_trades"]
+        # Real p-value only for holdout candidates
+        n_trades = res["metrics"]["total_trades"]
+        actual_wins = res["metrics"]["wins"]
+        if n_trades > 0:
+            sim_wins = np.random.binomial(n_trades, 0.5, size=1000)
+            strategy.p_value = float(np.mean(sim_wins >= actual_wins))
+        else:
+            strategy.p_value = 1.0
 
 def _evaluate_worker(args: tuple) -> Strategy | None:
     s, data, eth_data, event_queue = args
@@ -513,6 +521,11 @@ def run_forever() -> None:
                         })
                     
                     db.save(s_res)
+                    try:
+                        from telegram_alerts import send_strategy_alert
+                        send_strategy_alert(s_res)
+                    except Exception:
+                        pass
                     next_population.append(s_res)
                     scores_this_gen.append(s_res.metrics["score"])
                     scored_count += 1
