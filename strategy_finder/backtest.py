@@ -92,8 +92,13 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
     highs   = df["tf_15m_high"].values
     lows    = df["tf_15m_low"].values
     timestamps = df["timestamp"].dt.strftime("%Y-%m-%d %H:%M").values
+    timestamps_dt = df["timestamp"].values
     atr14   = df["tf_15m_atr_14"].values
     atr_pct = df["tf_15m_atr_pct"].values
+    try:
+        ema_slope = df["tf_1d_ema_200_slope"].values
+    except KeyError:
+        ema_slope = np.zeros(len(df))
 
     for i in range(WARMUP, len(df)):
         row_dict: dict | None = None
@@ -260,6 +265,7 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
                 elif partial_pnl > 0 and pnl <= 0: is_win = False # or true depending on net
                 is_win = pnl > 0
 
+                balance_before = balance
                 balance += pnl
                 if balance <= 0:
                     balance = 0.01
@@ -276,6 +282,12 @@ def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None
                     "exit_reason": exit_reason,
                     "pnl": pnl,
                     "win": is_win,
+                    "balance_before": balance_before,
+                    "balance_after": balance,
+                    "sl_mult_used": strategy.sl_mult,
+                    "rr_ratio_used": strategy.rr_ratio,
+                    "duration_hours": (pd.to_datetime(timestamps[i]) - pd.to_datetime(position["entry_time"])).total_seconds() / 3600.0,
+                    "regime": "bull" if ema_slope[i] > 0.1 else ("bear" if ema_slope[i] < -0.1 else "sideways")
                 })
                 equity.append(balance)
                 position = None
@@ -426,18 +438,98 @@ def _compute_metrics(trades: list[dict], equity: list[float], df: pd.DataFrame, 
         "equity_curve":         [round(e, 2) for e in equity],
     }
 
-    # Monthly Returns
+    # Deep Stats
+    max_cons_wins = 0
+    max_cons_losses = 0
+    curr_cons_wins = 0
+    curr_cons_losses = 0
+    for t in trades:
+        if t["win"]:
+            curr_cons_wins += 1
+            curr_cons_losses = 0
+            if curr_cons_wins > max_cons_wins: max_cons_wins = curr_cons_wins
+        else:
+            curr_cons_losses += 1
+            curr_cons_wins = 0
+            if curr_cons_losses > max_cons_losses: max_cons_losses = curr_cons_losses
+            
+    metrics["max_consecutive_wins"] = max_cons_wins
+    metrics["max_consecutive_losses"] = max_cons_losses
+    metrics["avg_win_size_usd"] = round(avg_win, 2)
+    metrics["avg_loss_size_usd"] = round(avg_loss, 2)
+    total_pnl = equity[-1] - equity[0]
+    metrics["expectancy_per_trade"] = round(total_pnl / len(trades), 2) if trades else 0.0
+    metrics["avg_trade_duration_hours"] = round(np.mean([t["duration_hours"] for t in trades]), 2) if trades else 0.0
+    
+    total_t = len(trades)
+    metrics["pct_trades_in_bull"] = round(sum(1 for t in trades if t["regime"] == "bull") / total_t * 100, 1) if total_t else 0
+    metrics["pct_trades_in_bear"] = round(sum(1 for t in trades if t["regime"] == "bear") / total_t * 100, 1) if total_t else 0
+    metrics["pct_trades_in_sideways"] = round(sum(1 for t in trades if t["regime"] == "sideways") / total_t * 100, 1) if total_t else 0
+    
+    max_dd_usd = 0
+    peak_usd = equity[0]
+    for eq_val in equity:
+        if eq_val > peak_usd: peak_usd = eq_val
+        if (peak_usd - eq_val) > max_dd_usd: max_dd_usd = peak_usd - eq_val
+    metrics["recovery_factor"] = round(total_pnl / max_dd_usd, 2) if max_dd_usd > 0 else 0.0
+
+    # Monthly Returns & Yearly Stats
     monthly_returns = []
+    yearly_stats = []
+    
     if phase == "full":
-        # Group trades by exit month
         trade_df = pd.DataFrame(trades)
         if not trade_df.empty:
             trade_df['exit_date'] = pd.to_datetime(trade_df['exit_time'])
+            
+            # Monthly
             trade_df['month'] = trade_df['exit_date'].dt.to_period('M')
-            grouped = trade_df.groupby('month')['pnl'].sum()
-            # Convert to pct approx for heatmap display
-            # We don't track daily equity balance here easily, so we show raw $ pnl per month
-            for period, pnl in grouped.items():
-                monthly_returns.append({"month": str(period), "pnl": round(pnl, 2)})
+            grouped_m = trade_df.groupby('month')
+            for period, group in grouped_m:
+                month_start_balance = group.iloc[0]['balance_before']
+                month_pnl = group['pnl'].sum()
+                month_pct = (month_pnl / month_start_balance) * 100 if month_start_balance > 0 else 0
+                monthly_returns.append({"month": str(period), "pnl": round(month_pnl, 2), "return_pct": round(month_pct, 2)})
+                
+            # Yearly
+            trade_df['year'] = trade_df['exit_date'].dt.year
+            grouped_y = trade_df.groupby('year')
+            for year, group in grouped_y:
+                y_start_bal = group.iloc[0]['balance_before']
+                y_end_bal = group.iloc[-1]['balance_after']
+                y_ret = ((y_end_bal / y_start_bal) - 1) * 100 if y_start_bal > 0 else 0
+                
+                eq_y = group['balance_after'].values
+                peak_y = np.maximum.accumulate(eq_y)
+                dd_y = (peak_y - eq_y) / peak_y * 100
+                y_max_dd = np.max(dd_y) if len(dd_y) > 0 else 0.0
+                
+                rets_y = group['pnl'] / y_start_bal
+                y_sharpe = (rets_y.mean() / rets_y.std()) * np.sqrt(len(group)) if len(rets_y) > 1 and rets_y.std() > 0 else 0
+                
+                yearly_stats.append({
+                    "year": int(year),
+                    "trades": len(group),
+                    "win_rate": round((group['win'].sum() / len(group)) * 100, 1),
+                    "net_return_pct": round(y_ret, 1),
+                    "max_drawdown": round(y_max_dd, 1),
+                    "sharpe": round(y_sharpe, 2)
+                })
+                
+    if monthly_returns:
+        pct_returns = [m["return_pct"] for m in monthly_returns]
+        metrics["avg_monthly_return"] = round(np.mean(pct_returns), 2)
+        metrics["monthly_return_std_dev"] = round(np.std(pct_returns), 2)
+        best_m = max(monthly_returns, key=lambda x: x["return_pct"])
+        worst_m = min(monthly_returns, key=lambda x: x["return_pct"])
+        metrics["best_month"] = {"month": best_m["month"], "value": best_m["return_pct"]}
+        metrics["worst_month"] = {"month": worst_m["month"], "value": worst_m["return_pct"]}
+    else:
+        metrics["avg_monthly_return"] = 0.0
+        metrics["monthly_return_std_dev"] = 0.0
+        metrics["best_month"] = {"month": "N/A", "value": 0.0}
+        metrics["worst_month"] = {"month": "N/A", "value": 0.0}
+        
+    metrics["yearly_stats"] = yearly_stats
 
     return metrics, monthly_returns

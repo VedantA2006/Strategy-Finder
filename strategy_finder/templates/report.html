@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Strategy Report - {{ s.name }}</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f111a; color: #f8fafc; padding: 2rem; max-width: 1000px; margin: 0 auto; line-height: 1.5; }
+    h1, h2, h3 { color: #fff; border-bottom: 1px solid #333; padding-bottom: 0.5rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+    .card { background: #1e2130; padding: 1.5rem; border-radius: 8px; border: 1px solid #2a2e40; }
+    .label { color: #94a3b8; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem; }
+    .val { font-size: 1.2rem; font-weight: 600; color: #fff; font-family: monospace; }
+    .green { color: #10b981; }
+    .red { color: #ef4444; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; margin-bottom: 2rem; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #333; }
+    th { color: #94a3b8; font-weight: normal; }
+    .svg-container { width: 100%; height: 300px; background: #1e2130; border-radius: 8px; border: 1px solid #2a2e40; margin-bottom: 2rem; }
+</style>
+</head>
+<body>
+    <h1>{{ s.name }} - Full Report</h1>
+    <p style="color: #94a3b8; margin-bottom: 2rem;">Generated from Strategy Finder - ID: {{ s.id }}</p>
+    
+    <div class="grid">
+        <div class="card">
+            <div class="label">CAGR</div>
+            <div class="val green">{{ "%.1f"|format(s.metrics.cagr) }}%</div>
+        </div>
+        <div class="card">
+            <div class="label">Max Drawdown</div>
+            <div class="val red">{{ "%.1f"|format(s.metrics.max_drawdown) }}%</div>
+        </div>
+        <div class="card">
+            <div class="label">Win Rate</div>
+            <div class="val">{{ "%.1f"|format(s.metrics.win_rate) }}%</div>
+        </div>
+        <div class="card">
+            <div class="label">Score / Walk Forward</div>
+            <div class="val">{{ "%.2f"|format(s.metrics.score) }} / {{ "%.2f"|format(s.walk_forward_ratio) }}</div>
+        </div>
+    </div>
+    
+    <h2>Equity Curve</h2>
+    <div class="svg-container">
+        <svg width="100%" height="100%" viewBox="0 0 800 300" preserveAspectRatio="none">
+            <polyline points="{{ svg_path }}" fill="none" stroke="#3b82f6" stroke-width="2" />
+        </svg>
+    </div>
+    
+    <h2>Deep Stats</h2>
+    <div class="grid">
+        <div class="card">
+            <div class="label">Avg Monthly Return</div>
+            <div class="val">{{ "%.2f"|format(s.metrics.get('avg_monthly_return', 0)) }}%</div>
+            <br>
+            <div class="label">Best / Worst Month</div>
+            <div class="val">{{ "%.2f"|format(s.metrics.get('best_month', {}).get('value', 0)) }}% / {{ "%.2f"|format(s.metrics.get('worst_month', {}).get('value', 0)) }}%</div>
+            <br>
+            <div class="label">Recovery Factor</div>
+            <div class="val">{{ "%.2f"|format(s.metrics.get('recovery_factor', 0)) }}</div>
+        </div>
+        <div class="card">
+            <div class="label">Avg Win / Loss</div>
+            <div class="val">${{ "%.2f"|format(s.metrics.get('avg_win_size_usd', 0)) }} / ${{ "%.2f"|format(s.metrics.get('avg_loss_size_usd', 0)) }}</div>
+            <br>
+            <div class="label">Expectancy / Trade</div>
+            <div class="val">${{ "%.2f"|format(s.metrics.get('expectancy_per_trade', 0)) }}</div>
+            <br>
+            <div class="label">Avg Duration</div>
+            <div class="val">{{ "%.1f"|format(s.metrics.get('avg_trade_duration_hours', 0)) }} hours</div>
+        </div>
+    </div>
+
+    <h2>Monthly Returns Heatmap (%)</h2>
+    <table>
+        <tr>
+            <th>Year</th>
+            {% for m in ['01','02','03','04','05','06','07','08','09','10','11','12'] %}
+            <th>{{ m }}</th>
+            {% endfor %}
+        </tr>
+        {% for year, months in heatmap_data.items()|sort(attribute='0', reverse=True) %}
+        <tr>
+            <td><strong>{{ year }}</strong></td>
+            {% for m in ['01','02','03','04','05','06','07','08','09','10','11','12'] %}
+                {% set val = months.get(m) %}
+                {% if val is not none %}
+                    {% set r = 0 %}{% set g = 0 %}
+                    {% if val > 0 %}{% set g = [val * 15, 200]|min %}{% elif val < 0 %}{% set r = [val|abs * 15, 200]|min %}{% endif %}
+                    <td style="background-color: rgba({{ r }}, {{ g }}, 0, 0.4); color: white; font-family: monospace;">
+                        {{ "%.1f"|format(val) }}%
+                    </td>
+                {% else %}
+                    <td style="color: #64748b;">-</td>
+                {% endif %}
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>Yearly Performance</h2>
+    <table>
+        <tr><th>Year</th><th>Trades</th><th>Win Rate</th><th>Net Return</th><th>Max DD</th><th>Sharpe</th></tr>
+        {% for y_stat in s.metrics.get('yearly_stats', [])|sort(attribute='year', reverse=True) %}
+        <tr>
+            <td>{{ y_stat.year }}</td>
+            <td>{{ y_stat.trades }}</td>
+            <td>{{ "%.1f"|format(y_stat.win_rate) }}%</td>
+            <td class="{{ 'green' if y_stat.net_return_pct > 0 else 'red' }}">{{ "%.1f"|format(y_stat.net_return_pct) }}%</td>
+            <td class="red">{{ "%.1f"|format(y_stat.max_drawdown) }}%</td>
+            <td>{{ "%.2f"|format(y_stat.sharpe) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    
+    <h2>Strategy Logic</h2>
+    <div class="card">
+        <p><strong>SL Mult:</strong> {{ s.sl_mult }} &nbsp;|&nbsp; <strong>RR Ratio:</strong> {{ s.rr_ratio }}</p>
+        <p><strong>Trail Mult:</strong> {{ s.trail_mult }} &nbsp;|&nbsp; <strong>TP1 Ratio:</strong> {{ s.tp1_ratio }}</p>
+        <p style="margin-top:1rem; color:#60a5fa;"><strong>Buy:</strong> <code>{{ s.buy_conditions }}</code></p>
+        <p style="color:#f87171;"><strong>Sell:</strong> <code>{{ s.sell_conditions }}</code></p>
+    </div>
+</body>
+</html>

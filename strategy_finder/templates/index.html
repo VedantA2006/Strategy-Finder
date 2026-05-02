@@ -40,6 +40,7 @@
                 <option value="ETHUSDT" {% if current_asset == 'ETHUSDT' %}selected{% endif %}>ETHUSDT</option>
                 <option value="SOLUSDT" {% if current_asset == 'SOLUSDT' %}selected{% endif %}>SOLUSDT</option>
             </select>
+            <button class="btn btn-primary" style="margin-left:1rem;" onclick="compareSelected()">Compare Selected</button>
         </div>
     </div>
 
@@ -47,21 +48,26 @@
         <table>
             <thead>
                 <tr>
-                    <th>Rank</th>
-                    <th>Asset</th>
-                    <th>Name</th>
-                    <th>WF Ratio</th>
-                    <th>CAGR %</th>
-                    <th>MC DD95%</th>
-                    <th>Win %</th>
-                    <th>p-value</th>
-                    <th>TFs</th>
-                    <th>Score</th>
+                    <th style="width: 40px;"></th>
+                    <th class="sortable" onclick="sortTable(1)">Rank</th>
+                    <th class="sortable" onclick="sortTable(2)">Asset</th>
+                    <th class="sortable" onclick="sortTable(3)">Name</th>
+                    <th class="sortable" onclick="sortTable(4)">Avg M. Return</th>
+                    <th class="sortable" onclick="sortTable(5)">WF Ratio</th>
+                    <th class="sortable" onclick="sortTable(6)">CAGR %</th>
+                    <th class="sortable" onclick="sortTable(7)">MC DD95%</th>
+                    <th class="sortable" onclick="sortTable(8)">Win %</th>
+                    <th class="sortable" onclick="sortTable(9)">p-value</th>
+                    <th class="sortable" onclick="sortTable(10)">TFs</th>
+                    <th class="sortable" onclick="sortTable(11)">Score</th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in strategies %}
                 <tr>
+                    <td>
+                        <input type="checkbox" class="compare-cb" value="{{ s.id }}">
+                    </td>
                     <td>
                         {% if loop.index <= 3 %}
                             <span class="rank-badge rank-{{ loop.index }}">{{ loop.index }}</span>
@@ -75,6 +81,14 @@
                         {% if s.is_correlated %}
                         <span style="font-size: 0.7em; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; margin-left: 6px;">Correlated</span>
                         {% endif %}
+                        {% if s.metrics.get('overfit_score', 0) > 0.4 %}
+                        <span style="font-size: 0.7em; background: rgba(239,68,68,0.2); color:#ef4444; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">Overfit Risk</span>
+                        {% elif s.metrics.get('overfit_score', 0) < 0.15 %}
+                        <span style="font-size: 0.7em; background: rgba(34,197,94,0.2); color:#22c55e; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">Robust</span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ 'positive' if s.metrics.get('avg_monthly_return', 0) > 0 else 'negative' }}" title="Best: {{ '%.2f'|format(s.metrics.get('best_month', {}).get('value', 0)) }}%, Worst: {{ '%.2f'|format(s.metrics.get('worst_month', {}).get('value', 0)) }}%">
+                        {{ "+%.2f"|format(s.metrics.get('avg_monthly_return', 0)) if s.metrics.get('avg_monthly_return', 0) > 0 else "%.2f"|format(s.metrics.get('avg_monthly_return', 0)) }}%
                     </td>
                     <td class="{{ 'positive' if s.walk_forward_ratio > 0.8 else ('negative' if s.walk_forward_ratio < 0.6 else '') }}">
                         {{ "%.2f"|format(s.walk_forward_ratio) }}
@@ -143,6 +157,52 @@
             layout: { padding: 5 }
         }
     });
+
+    // Comparison logic
+    function compareSelected() {
+        const cbs = document.querySelectorAll('.compare-cb:checked');
+        if (cbs.length < 2) {
+            alert('Please select at least 2 strategies to compare.');
+            return;
+        }
+        if (cbs.length > 5) {
+            alert('You can only compare up to 5 strategies.');
+            return;
+        }
+        const ids = Array.from(cbs).map(cb => cb.value).join(',');
+        window.location.href = `/compare?ids=${ids}`;
+    }
+
+    // Client-side sorting
+    let sortOrders = {};
+    function sortTable(n) {
+        const table = document.querySelector('table');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        
+        let asc = sortOrders[n] === 'asc' ? false : true;
+        sortOrders[n] = asc ? 'asc' : 'desc';
+        
+        rows.sort((a, b) => {
+            if (a.cells.length < 2) return 0; // Empty row
+            let x = a.cells[n].innerText || a.cells[n].textContent;
+            let y = b.cells[n].innerText || b.cells[n].textContent;
+            
+            // Clean values
+            x = x.replace(/[^0-9.\-]/g, '');
+            y = y.replace(/[^0-9.\-]/g, '');
+            
+            let nx = parseFloat(x);
+            let ny = parseFloat(y);
+            
+            if (!isNaN(nx) && !isNaN(ny)) {
+                return asc ? nx - ny : ny - nx;
+            }
+            return asc ? x.localeCompare(y) : y.localeCompare(x);
+        });
+        
+        rows.forEach(r => tbody.appendChild(r));
+    }
 </script>
 </body>
 </html>

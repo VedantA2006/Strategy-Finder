@@ -72,11 +72,43 @@ class Strategy:
         if not self.id:
             self.id = str(uuid.uuid4())
         if not self.name:
-            self.name = f"strat_{self.id[:8]}"
+            self.name = self.generate_name()
         # Auto-compute complexity
         self._update_complexity()
 
     # ── Complexity computation ───────────────────────────────────────────
+    def generate_name(self) -> str:
+        """Auto-generate a human-readable name based on strategy characteristics."""
+        name_parts = []
+        conds = self.buy_conditions.lower()
+        
+        # 1. Regime
+        if "tf_1d_ema_200_slope > 0" in conds: name_parts.append("Bull")
+        elif "tf_1d_ema_200_slope < 0" in conds: name_parts.append("Bear")
+        else: name_parts.append("Any")
+        
+        # 2. Indicator
+        if "supertrend" in conds: name_parts.append("STrend")
+        elif "engulfing" in conds: name_parts.append("Engulf")
+        elif "hammer" in conds: name_parts.append("Hammer")
+        elif "stoch" in conds: name_parts.append("Stoch")
+        elif "bb_" in conds: name_parts.append("BB")
+        elif "macd" in conds: name_parts.append("MACD")
+        elif "rsi" in conds: name_parts.append("RSI")
+        elif "ema" in conds: name_parts.append("EMA")
+        elif "vwap" in conds: name_parts.append("VWAP")
+        else: name_parts.append("Mix")
+        
+        # 3. RR
+        if self.rr_ratio < 2.5: name_parts.append("TightRR")
+        elif self.rr_ratio <= 4.0: name_parts.append("BalRR")
+        else: name_parts.append("WideRR")
+        
+        import string
+        import random
+        suffix = "".join(random.choices(string.digits, k=3))
+        return "-".join(name_parts) + "-" + suffix
+
     def _update_complexity(self) -> None:
         """Count total clauses and unique timeframes in condition trees."""
         all_conds = f"{self.buy_conditions} {self.sell_conditions}"

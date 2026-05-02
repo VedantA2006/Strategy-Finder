@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategy Comparison</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<nav class="navbar">
+    <div class="container">
+        <a href="/" class="nav-brand"><span class="logo">StrategyFinder</span></a>
+        <ul class="nav-links">
+            <li><a href="/">Leaderboard</a></li>
+            <li><a href="/live">Live Status</a></li>
+        </ul>
+    </div>
+</nav>
+<div class="container">
+    <div class="page-header">
+        <div>
+            <h1>Strategy Comparison</h1>
+            <p class="subtitle" style="color:var(--text-muted); margin-top:0.5rem;">Comparing {{ strategies|length }} selected strategies</p>
+        </div>
+    </div>
+    
+    <div class="table-container" style="margin-bottom: 2rem;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    {% for s in strategies %}
+                    <th><a href="/strategy/{{ s.id }}" class="strategy-link">{{ s.name }}</a></th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Asset</td>{% for s in strategies %}<td>{{ s.asset }}</td>{% endfor %}</tr>
+                <tr><td>Composite Score</td>{% for s in strategies %}<td style="font-weight:700;">{{ "%.2f"|format(s.metrics.score) }}</td>{% endfor %}</tr>
+                <tr><td>CAGR %</td>{% for s in strategies %}<td>{{ "%.1f"|format(s.metrics.cagr) }}%</td>{% endfor %}</tr>
+                <tr><td>Max DD %</td>{% for s in strategies %}<td>{{ "%.1f"|format(s.metrics.max_drawdown) }}%</td>{% endfor %}</tr>
+                <tr><td>Win Rate %</td>{% for s in strategies %}<td>{{ "%.1f"|format(s.metrics.win_rate) }}%</td>{% endfor %}</tr>
+                <tr><td>Avg M. Return %</td>{% for s in strategies %}<td>{{ "%.2f"|format(s.metrics.get('avg_monthly_return', 0)) }}%</td>{% endfor %}</tr>
+                <tr><td>Expectancy / Trade</td>{% for s in strategies %}<td>${{ "%.2f"|format(s.metrics.get('expectancy_per_trade', 0)) }}</td>{% endfor %}</tr>
+                <tr><td>Avg Duration (h)</td>{% for s in strategies %}<td>{{ "%.1f"|format(s.metrics.get('avg_trade_duration_hours', 0)) }}</td>{% endfor %}</tr>
+                <tr><td>WF Ratio</td>{% for s in strategies %}<td>{{ "%.2f"|format(s.walk_forward_ratio) }}</td>{% endfor %}</tr>
+                <tr><td>Overfit Score</td>{% for s in strategies %}<td>{{ "%.2f"|format(s.metrics.get('overfit_score', 0)) }}</td>{% endfor %}</tr>
+                <tr><td>p-value</td>{% for s in strategies %}<td>{{ "%.4f"|format(s.metrics.get('p_value', 1.0)) }}</td>{% endfor %}</tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="chart-container" style="margin-bottom: 2rem;">
+        <h3>Overlapping Equity Curves</h3>
+        <canvas id="compareChart" height="80"></canvas>
+    </div>
+    
+    <div class="chart-container" style="margin-bottom: 2rem;">
+        <h3>Blended Portfolio (Equal Allocation)</h3>
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:1rem;">Assuming 1/N capital allocation to each strategy.</p>
+        <div style="display:flex; gap:2rem; margin-bottom:1rem;">
+            <div class="metric-card">
+                <div class="metric-label">Blended CAGR</div>
+                <div class="metric-value positive" id="blended-cagr">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Blended Max DD</div>
+                <div class="metric-value negative" id="blended-dd">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Blended Sharpe</div>
+                <div class="metric-value" id="blended-sharpe">-</div>
+            </div>
+        </div>
+        <canvas id="blendedChart" height="60"></canvas>
+    </div>
+</div>
+
+<script>
+    const strats = [
+        {% for s in strategies %}
+        {
+            name: "{{ s.name }}",
+            equity: {{ s.metrics.get('equity_curve', []) | tojson }}
+        },
+        {% endfor %}
+    ];
+    
+    const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+    
+    let maxLen = 0;
+    strats.forEach(s => { if (s.equity.length > maxLen) maxLen = s.equity.length; });
+    const labels = Array.from({length: maxLen}, (_, i) => i);
+    
+    const datasets = strats.map((s, i) => {
+        const data = [...s.equity];
+        return {
+            label: s.name,
+            data: data,
+            borderColor: colors[i],
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: false
+        };
+    });
+    
+    const ctx = document.getElementById('compareChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { font: { family: 'Fira Code' } } } }
+        }
+    });
+    
+    const blendedEquity = new Array(maxLen).fill(0);
+    const activeStratsAtI = new Array(maxLen).fill(0);
+    
+    for (let i = 0; i < maxLen; i++) {
+        let sumPct = 0;
+        let count = 0;
+        strats.forEach(s => {
+            if (i < s.equity.length && s.equity[0] > 0) {
+                sumPct += (s.equity[i] / s.equity[0]);
+                count++;
+            } else if (s.equity.length > 0 && i >= s.equity.length) {
+                sumPct += (s.equity[s.equity.length - 1] / s.equity[0]);
+                count++;
+            }
+        });
+        if (count > 0) {
+            blendedEquity[i] = (sumPct / count) * 10000;
+        }
+    }
+    
+    const endBal = blendedEquity[blendedEquity.length - 1] || 10000;
+    const startBal = blendedEquity[0] || 10000;
+    const years = 5;
+    const blendedCagr = (Math.pow(endBal / startBal, 1 / years) - 1) * 100;
+    
+    let maxDd = 0;
+    let peak = startBal;
+    blendedEquity.forEach(v => {
+        if (v > peak) peak = v;
+        const dd = (peak - v) / peak * 100;
+        if (dd > maxDd) maxDd = dd;
+    });
+    
+    document.getElementById('blended-cagr').innerText = blendedCagr.toFixed(1) + '%';
+    document.getElementById('blended-dd').innerText = maxDd.toFixed(1) + '%';
+    document.getElementById('blended-sharpe').innerText = (blendedCagr / (maxDd || 1) * 0.5).toFixed(2); 
+    
+    const ctxB = document.getElementById('blendedChart').getContext('2d');
+    new Chart(ctxB, {
+        type: 'line',
+        data: { 
+            labels, 
+            datasets: [{
+                label: 'Blended',
+                data: blendedEquity,
+                borderColor: '#ffffff',
+                borderWidth: 3,
+                pointRadius: 0,
+                tension: 0.2,
+                fill: true,
+                backgroundColor: 'rgba(255,255,255,0.1)'
+            }] 
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' } } }
+        }
+    });
+</script>
+</body>
+</html>

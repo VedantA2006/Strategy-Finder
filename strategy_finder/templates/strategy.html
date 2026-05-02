@@ -27,12 +27,21 @@
                 <span class="badge">{{ s.asset }}</span>
                 <span class="badge" style="background:rgba(139,92,246,0.2);color:#8b5cf6;">Complexity: {{ s.condition_complexity }}</span>
                 <span class="badge" style="background:rgba(245,158,11,0.2);color:#f59e0b;">TFs: {{ s.n_timeframes_used }}</span>
+                {% if s.metrics.get('overfit_score', 0) > 0.4 %}
+                <span class="badge" style="background:rgba(239,68,68,0.2);color:#ef4444;">Overfit Risk ({{ "%.2f"|format(s.metrics.get('overfit_score', 0)) }})</span>
+                {% elif s.metrics.get('overfit_score', 0) < 0.15 %}
+                <span class="badge" style="background:rgba(34,197,94,0.2);color:#22c55e;">Robust ({{ "%.2f"|format(s.metrics.get('overfit_score', 0)) }})</span>
+                {% endif %}
                 <span style="color:var(--text-muted); font-size:0.8rem; margin-left:1rem;">Gen {{ s.generation }}</span>
             </div>
         </div>
-        <button class="btn btn-primary" onclick="exportCode('{{ s.id }}')">
-            <span>&lt;/&gt;</span> Export to python
-        </button>
+        <div style="display:flex; gap:0.5rem;">
+            <a href="/strategy/{{ s.id }}/download/backtest" class="btn btn-secondary">Trades CSV</a>
+            <a href="/strategy/{{ s.id }}/download/report" class="btn btn-secondary">Full Report</a>
+            <button class="btn btn-primary" onclick="exportCode('{{ s.id }}')">
+                <span>&lt;/&gt;</span> Export to python
+            </button>
+        </div>
     </div>
 
     <!-- Metrics -->
@@ -98,18 +107,131 @@
                 </div>
             </div>
 
-            <!-- Monthly Heatmap -->
-            <div class="chart-container">
-                <h3>Monthly Returns ($)</h3>
-                <div class="heatmap">
-                    {% for m in monthly_returns[-12:] %}
-                    <div class="heatmap-cell {{ 'up' if m.pnl > 0 else 'down' }}">
-                        <div>{{ m.month.split('-')[1] }}/{{ m.month.split('-')[0][2:] }}</div>
-                        <div style="font-weight:600; margin-top:2px;">{{ "%.0f"|format(m.pnl) }}</div>
+            <!-- Monthly Heatmap Calendar -->
+            <div class="chart-container" style="grid-column: 1 / -1; margin-top:1rem;">
+                <h3>Monthly Returns Heatmap (%)</h3>
+                <div style="overflow-x:auto;">
+                    <table class="heatmap-table" style="width:100%; border-collapse:collapse; text-align:center;">
+                        <thead>
+                            <tr>
+                                <th style="padding:8px; border:1px solid var(--glass-border);">Year</th>
+                                {% for m in ['01','02','03','04','05','06','07','08','09','10','11','12'] %}
+                                <th style="padding:8px; border:1px solid var(--glass-border);">{{ m }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for year, months in heatmap_data.items()|sort(attribute='0', reverse=True) %}
+                            <tr>
+                                <td style="padding:8px; border:1px solid var(--glass-border); font-weight:bold;">{{ year }}</td>
+                                {% for m in ['01','02','03','04','05','06','07','08','09','10','11','12'] %}
+                                    {% set val = months.get(m) %}
+                                    {% if val is not none %}
+                                        {% set r = 0 %}{% set g = 0 %}
+                                        {% if val > 0 %}
+                                            {% set g = [val * 15, 200]|min %}
+                                        {% elif val < 0 %}
+                                            {% set r = [val|abs * 15, 200]|min %}
+                                        {% endif %}
+                                        <td style="padding:8px; border:1px solid var(--glass-border); background-color: rgba({{ r }}, {{ g }}, 0, 0.4); color: white; font-family:'Fira Code';">
+                                            {{ "%.1f"|format(val) }}%
+                                        </td>
+                                    {% else %}
+                                        <td style="padding:8px; border:1px solid var(--glass-border); background-color: transparent; color: var(--text-muted);">
+                                            -
+                                        </td>
+                                    {% endif %}
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Deep Stats -->
+            <div class="chart-container" style="grid-column: 1 / -1; margin-top:1rem;">
+                <h3>Deep Stats</h3>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+                    <div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Avg Monthly Return</span>
+                            <span class="metric-value">{{ "%.2f"|format(s.metrics.get('avg_monthly_return', 0)) }}% ± {{ "%.2f"|format(s.metrics.get('monthly_return_std_dev', 0)) }}%</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Best Month</span>
+                            <span class="metric-value">{{ "%.2f"|format(s.metrics.get('best_month', {}).get('value', 0)) }}% ({{ s.metrics.get('best_month', {}).get('month', '-') }})</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Worst Month</span>
+                            <span class="metric-value">{{ "%.2f"|format(s.metrics.get('worst_month', {}).get('value', 0)) }}% ({{ s.metrics.get('worst_month', {}).get('month', '-') }})</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Max Consecutive Wins</span>
+                            <span class="metric-value">{{ s.metrics.get('max_consecutive_wins', 0) }}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:0.5rem 0;">
+                            <span>Max Consecutive Losses</span>
+                            <span class="metric-value">{{ s.metrics.get('max_consecutive_losses', 0) }}</span>
+                        </div>
                     </div>
-                    {% else %}
-                    <div style="grid-column: span 3; color:var(--text-muted); font-size:0.8rem;">No monthly data</div>
-                    {% endfor %}
+                    <div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Avg Win / Avg Loss</span>
+                            <span class="metric-value">${{ "%.2f"|format(s.metrics.get('avg_win_size_usd', 0)) }} / ${{ "%.2f"|format(s.metrics.get('avg_loss_size_usd', 0)) }}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Expectancy / Trade</span>
+                            <span class="metric-value">${{ "%.2f"|format(s.metrics.get('expectancy_per_trade', 0)) }}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Avg Duration</span>
+                            <span class="metric-value">{{ "%.1f"|format(s.metrics.get('avg_trade_duration_hours', 0)) }}h</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Bull / Bear / Side %</span>
+                            <span class="metric-value">{{ s.metrics.get('pct_trades_in_bull', 0) }} / {{ s.metrics.get('pct_trades_in_bear', 0) }} / {{ s.metrics.get('pct_trades_in_sideways', 0) }}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--glass-border); padding:0.5rem 0;">
+                            <span>Recovery Factor</span>
+                            <span class="metric-value">{{ "%.2f"|format(s.metrics.get('recovery_factor', 0)) }}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:0.5rem 0;">
+                            <span>Overfit Score</span>
+                            <span class="metric-value">{{ "%.2f"|format(s.metrics.get('overfit_score', 0)) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Yearly Stats Table -->
+            <div class="chart-container" style="grid-column: 1 / -1; margin-top:1rem;">
+                <h3>Yearly Performance</h3>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; text-align:left;">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--glass-border);">
+                                <th style="padding:8px;">Year</th>
+                                <th style="padding:8px;">Trades</th>
+                                <th style="padding:8px;">Win Rate</th>
+                                <th style="padding:8px;">Net Return</th>
+                                <th style="padding:8px;">Max DD</th>
+                                <th style="padding:8px;">Sharpe</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for y_stat in s.metrics.get('yearly_stats', [])|sort(attribute='year', reverse=True) %}
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                <td style="padding:8px;">{{ y_stat.year }}</td>
+                                <td style="padding:8px;">{{ y_stat.trades }}</td>
+                                <td style="padding:8px;">{{ "%.1f"|format(y_stat.win_rate) }}%</td>
+                                <td style="padding:8px; color: {{ '#22c55e' if y_stat.net_return_pct > 0 else '#ef4444' }}">{{ "%.1f"|format(y_stat.net_return_pct) }}%</td>
+                                <td style="padding:8px; color: #ef4444;">{{ "%.1f"|format(y_stat.max_drawdown) }}%</td>
+                                <td style="padding:8px;">{{ "%.2f"|format(y_stat.sharpe) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

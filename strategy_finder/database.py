@@ -63,6 +63,8 @@ class StrategyDatabase:
                 validation_cagr REAL,
                 p_value REAL DEFAULT 1.0,
                 is_correlated INTEGER DEFAULT 0,
+                avg_monthly_return REAL DEFAULT 0.0,
+                overfit_score REAL DEFAULT 0.0,
                 
                 -- Complexity Metrics
                 condition_complexity INTEGER,
@@ -72,6 +74,7 @@ class StrategyDatabase:
                 equity_curve    TEXT,
                 monthly_returns_json TEXT,
                 trade_log_json  TEXT,
+                deep_stats_json TEXT,
                 
                 created_at      TEXT
             );
@@ -98,6 +101,12 @@ class StrategyDatabase:
             pass
         try:
             self.conn.execute("ALTER TABLE strategies ADD COLUMN is_correlated INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN avg_monthly_return REAL DEFAULT 0.0")
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN overfit_score REAL DEFAULT 0.0")
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN deep_stats_json TEXT")
         except sqlite3.OperationalError:
             pass
         self.conn.commit()
@@ -147,6 +156,12 @@ class StrategyDatabase:
             "trail_mult": s.trail_mult,
             "tp1_ratio": s.tp1_ratio,
         }
+        
+        avg_monthly = m.get("avg_monthly_return", 0.0)
+        overfit_score = 1.0 - s.walk_forward_ratio if s.walk_forward_ratio else 0.0
+        
+        deep_stats = {k: v for k, v in m.items() if k not in ("equity_curve",)}
+        
         self.conn.execute("""
             INSERT OR REPLACE INTO strategies
             (id, name, generation, asset, params_json, buy_conditions, sell_conditions,
@@ -154,13 +169,13 @@ class StrategyDatabase:
              max_drawdown, max_dd_duration, sharpe, trades_per_month, score,
              walk_forward_ratio, mc_drawdown_p95, parameter_sensitivity,
              regime_bull_wr, regime_bear_wr, regime_sideways_wr, validation_cagr,
-             p_value, is_correlated,
+             p_value, is_correlated, avg_monthly_return, overfit_score,
              condition_complexity, n_timeframes_used,
-             equity_curve, monthly_returns_json, trade_log_json, created_at)
+             equity_curve, monthly_returns_json, trade_log_json, deep_stats_json, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?)
         """, (
             s.id, s.name, s.generation, s.asset,
             json.dumps(params),
@@ -187,6 +202,8 @@ class StrategyDatabase:
             
             m.get("p_value", 1.0),
             1 if s.is_correlated else 0,
+            avg_monthly,
+            overfit_score,
             
             s.condition_complexity,
             s.n_timeframes_used,
@@ -194,6 +211,7 @@ class StrategyDatabase:
             json.dumps(m.get("equity_curve", [])),
             s.monthly_returns_json,
             s.trade_log_json,
+            json.dumps(deep_stats),
             datetime.datetime.utcnow().isoformat(),
         ))
         self.conn.commit()
@@ -306,6 +324,7 @@ class StrategyDatabase:
         """Convert a database row to a Strategy object."""
         params = json.loads(row["params_json"]) if row["params_json"] else {}
         equity_curve = json.loads(row["equity_curve"]) if row["equity_curve"] else []
+        deep_stats = json.loads(row["deep_stats_json"]) if "deep_stats_json" in row.keys() and row["deep_stats_json"] else {}
 
         s = Strategy(
             id=row["id"],
@@ -347,7 +366,10 @@ class StrategyDatabase:
                 "avg_trades_per_month": row["trades_per_month"],
                 "p_value":              row["p_value"],
                 "score":                row["score"],
+                "avg_monthly_return":   row["avg_monthly_return"] if "avg_monthly_return" in row.keys() else 0.0,
+                "overfit_score":        row["overfit_score"] if "overfit_score" in row.keys() else 0.0,
                 "equity_curve":         equity_curve,
+                **deep_stats
             },
         )
         return s

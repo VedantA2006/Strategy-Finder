@@ -14,8 +14,10 @@ from __future__ import annotations
 import json
 import pathlib
 
-from flask import Flask, render_template, abort, request, jsonify
+from flask import Flask, render_template, abort, request, jsonify, Response, redirect
 from flask_socketio import SocketIO
+import csv
+import io
 
 from database import StrategyDatabase
 
@@ -84,12 +86,19 @@ def strategy_detail(strategy_id: str):
     
     monthly = json.loads(s.monthly_returns_json) if s.monthly_returns_json else []
     
+    heatmap_data = {}
+    for m in monthly:
+        yr, mo = m["month"].split("-")
+        if yr not in heatmap_data: heatmap_data[yr] = {}
+        heatmap_data[yr][mo] = m.get("return_pct", 0)
+    
     return render_template(
         "strategy.html", 
         s=s, 
         equity_json=equity_json,
         dd_json=dd_json,
-        monthly_returns=monthly
+        monthly_returns=monthly,
+        heatmap_data=heatmap_data
     )
 
 @app.route("/strategy/<strategy_id>/export")
@@ -115,6 +124,84 @@ def strategy_export_json(strategy_id: str):
         "sell_conditions": s.sell_conditions
     }
     return jsonify(config)
+
+@app.route("/strategy/<strategy_id>/download/backtest")
+def download_backtest_csv(strategy_id: str):
+    db = get_db()
+    s = db.get(strategy_id)
+    db.close()
+    if not s or not s.trade_log_json:
+        abort(404)
+        
+    trades = json.loads(s.trade_log_json)
+    if not trades:
+        abort(404)
+        
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["trade_no", "direction", "entry_time", "exit_time", "duration_hours", 
+                     "entry_price", "sl_price", "tp_price", "exit_price", "exit_reason", 
+                     "pnl_usd", "pnl_pct", "balance_before", "balance_after", "atr_at_entry", 
+                     "sl_mult_used", "rr_ratio_used", "regime", "win"])
+    
+    for i, t in enumerate(trades):
+        pnl_pct = (t["pnl"] / t["balance_before"] * 100) if "balance_before" in t and t["balance_before"] > 0 else 0.0
+        writer.writerow([
+            i+1, t.get("direction", ""), t.get("entry_time", ""), t.get("exit_time", ""), round(t.get("duration_hours", 0), 2),
+            round(t.get("entry_price", 0), 4), round(t.get("sl", 0), 4), round(t.get("tp", 0), 4), round(t.get("exit_price", 0), 4),
+            t.get("exit_reason", ""), round(t.get("pnl", 0), 2), round(pnl_pct, 2),
+            round(t.get("balance_before", 0), 2), round(t.get("balance_after", 0), 2),
+            round(t.get("atr_entry", 0), 4), t.get("sl_mult_used", 0), t.get("rr_ratio_used", 0),
+            t.get("regime", ""), 1 if t.get("win") else 0
+        ])
+        
+    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-disposition": f"attachment; filename=strategy_{strategy_id}_trades.csv"})
+
+@app.route("/strategy/<strategy_id>/download/report")
+def download_report(strategy_id: str):
+    db = get_db()
+    s = db.get(strategy_id)
+    db.close()
+    if not s: abort(404)
+    
+    equity = s.metrics.get("equity_curve", [])
+    svg_path = ""
+    if equity:
+        max_eq = max(equity)
+        min_eq = min(equity)
+        range_eq = max_eq - min_eq if max_eq != min_eq else 1
+        width = 800
+        height = 300
+        points = []
+        for i, val in enumerate(equity):
+            x = (i / max(1, len(equity) - 1)) * width
+            y = height - ((val - min_eq) / range_eq) * height
+            points.append(f"{x},{y}")
+        svg_path = " ".join(points)
+        
+    monthly = json.loads(s.monthly_returns_json) if s.monthly_returns_json else []
+    heatmap_data = {}
+    for m in monthly:
+        yr, mo = m["month"].split("-")
+        if yr not in heatmap_data: heatmap_data[yr] = {}
+        heatmap_data[yr][mo] = m.get("return_pct", 0)
+        
+    return render_template("report.html", s=s, svg_path=svg_path, heatmap_data=heatmap_data)
+
+@app.route("/compare")
+def compare_strategies():
+    ids = request.args.get("ids", "")
+    if not ids: return redirect("/")
+    id_list = [x.strip() for x in ids.split(",")][:5]
+    
+    db = get_db()
+    strategies = [db.get(sid) for sid in id_list]
+    strategies = [s for s in strategies if s is not None]
+    db.close()
+    
+    if len(strategies) < 2: return redirect("/")
+    
+    return render_template("compare.html", strategies=strategies)
 
 
 @app.route("/live")
