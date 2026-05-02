@@ -139,10 +139,10 @@ def _evaluate_worker(args: tuple) -> Strategy | None:
         return None
         
     qm = quick_res["metrics"]
-    if qm["max_drawdown"] > 12.0: 
+    if qm["max_drawdown"] > 8.0: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "drawdown", "value": qm["max_drawdown"], "timestamp": now_iso()})
         return None
-    if qm["win_rate"] < 42.0 or qm["win_rate"] > 85.0: 
+    if qm["win_rate"] < 50.0 or qm["win_rate"] > 85.0: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "win_rate", "value": qm["win_rate"], "timestamp": now_iso()})
         return None
     if qm["avg_trades_per_month"] < 1.5: 

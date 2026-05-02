@@ -24,7 +24,7 @@ def score(metrics: dict, strategy: Strategy) -> float:
         return -999.0
     
     wr = metrics.get("win_rate", 0)
-    if wr < 48.0 or wr > 78.0:  # Overfitted high win rate disqualified
+    if wr < 50.0 or wr > 78.0:  # Below 50% or overfitted high win rate disqualified
         return -999.0
         
     if metrics.get("total_trades", 0) < 30:
@@ -39,8 +39,13 @@ def score(metrics: dict, strategy: Strategy) -> float:
     if strategy.parameter_sensitivity > 0.30:  # e.g., 0.35 means 35% drop
         return -999.0
 
-    # ── Composite score ──────────────────────────────────────────────────
+    # ── Monthly CAGR gate ─────────────────────────────────────────────────
     cagr = metrics.get("cagr", 0)
+    monthly_cagr = ((1 + cagr / 100) ** (1/12) - 1) * 100
+    if monthly_cagr < 15.0:
+        return -999.0
+
+    # ── Composite score ──────────────────────────────────────────────────
     max_dd = metrics.get("max_drawdown", 1.0)
     if max_dd == 0: max_dd = 1.0
     

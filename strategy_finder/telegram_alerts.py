@@ -27,7 +27,7 @@ def send_strategy_alert(strategy: Strategy) -> None:
         monthly_cagr = ((1 + annual_cagr / 100) ** (1/12) - 1) * 100
 
         # Threshold checks — return silently if any fail
-        if strategy.metrics.get("max_drawdown", 100) >= 10.0:
+        if strategy.metrics.get("max_drawdown", 100) >= 8.0:
             return
         if strategy.metrics.get("win_rate", 0) < 50.0:
             return
