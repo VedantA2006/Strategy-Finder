@@ -1,0 +1,481 @@
+# ============================================================
+# Strategy: {{ s.name }}
+# ID: {{ s.id }}
+# Generated: {{ datetime }}
+# Asset:      BTCUSDT (hardcoded — BTC only)
+# Timeframes: 15m (base), 1h, 4h, 1d (merged via backward asof / forward-fill)
+# Cache files: btcusdt_15m_5y.parquet, btcusdt_1h_5y.parquet,
+#              btcusdt_4h_5y.parquet,  btcusdt_1d_5y.parquet
+# Backtest period: 5 years of BTCUSDT data from Bybit
+# ============================================================
+# pip install pandas pyarrow numpy requests ta
+
+import os
+import time
+import requests
+import datetime
+import numpy as np
+import pandas as pd
+import ta
+
+# ─── STRATEGY PARAMETERS ─────────────────────────────────────────────────────
+SL_MULT       = {{ s.sl_mult }}
+RR_RATIO      = {{ s.rr_ratio }}
+TRAIL_MULT    = {{ s.trail_mult }}
+TP1_RATIO     = {{ s.tp1_ratio }}
+ATR_GATE      = {{ s.atr_gate }}
+COOLDOWN      = {{ s.cooldown }}
+BUY_CONDITIONS  = "{{ s.buy_conditions }}"
+SELL_CONDITIONS = "{{ s.sell_conditions }}"
+DB_CAGR       = {{ s.metrics.get('cagr', 0.0) }}
+WARMUP        = 200
+
+# ─── DATA FETCHING ───────────────────────────────────────────────────────────
+ASSET   = "BTCUSDT"
+YEARS   = 5
+CACHE_FILES = {
+    "15m": "btcusdt_15m_5y.parquet",
+    "1h":  "btcusdt_1h_5y.parquet",
+    "4h":  "btcusdt_4h_5y.parquet",
+    "1d":  "btcusdt_1d_5y.parquet",
+}
+BYBIT_INTERVALS = {
+    "15m": "15",
+    "1h":  "60",
+    "4h":  "240",
+    "1d":  "D",
+}
+CANDLES_NEEDED = {
+    "15m": 5 * 365 * 24 * 4,
+    "1h":  5 * 365 * 24,
+    "4h":  5 * 365 * 6,
+    "1d":  5 * 365,
+}
+
+def _fetch_single_tf(tf: str) -> pd.DataFrame:
+    cache = CACHE_FILES[tf]
+    if os.path.exists(cache):
+        age_hours = (time.time() - os.path.getmtime(cache)) / 3600
+        if age_hours < 24:
+            print(f"  [{tf}] Loading from cache: {cache}")
+            return pd.read_parquet(cache)
+
+    print(f"  [{tf}] Fetching from Bybit...")
+    interval  = BYBIT_INTERVALS[tf]
+    end_ts    = int(time.time() * 1000)
+    start_ts  = end_ts - (YEARS * 365 * 24 * 3600 * 1000)
+    all_rows  = []
+    cursor    = end_ts
+
+    while cursor > start_ts:
+        url = (
+            f"https://api.bybit.com/v5/market/kline"
+            f"?category=linear&symbol={ASSET}"
+            f"&interval={interval}&end={cursor}&limit=1000"
+        )
+        for attempt in range(5):
+            try:
+                resp = requests.get(url, timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except Exception as e:
+                if attempt == 4: raise
+                time.sleep(2 ** attempt)
+                
+        rows = data.get("result", {}).get("list", [])
+        if not rows:
+            break
+        all_rows.extend(rows)
+        cursor = int(rows[-1][0]) - 1
+        time.sleep(0.12)
+
+    df = pd.DataFrame(all_rows, columns=[
+        "timestamp","open","high","low","close","volume","turnover"
+    ])
+    df = df.astype({
+        "timestamp": "int64",
+        "open":  "float64", "high":  "float64",
+        "low":   "float64", "close": "float64",
+        "volume":"float64"
+    })
+    df.drop(columns=["turnover"], inplace=True)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    df = df.sort_values("timestamp").drop_duplicates("timestamp").reset_index(drop=True)
+    df = df[df["timestamp"] >= pd.Timestamp.now(tz="UTC") - pd.DateOffset(years=YEARS)]
+    df.to_parquet(cache, index=False)
+    print(f"  [{tf}] Saved {len(df):,} candles -> {cache}")
+    return df
+
+def fetch_all_timeframes() -> dict[str, pd.DataFrame]:
+    print("Fetching BTCUSDT data - all timeframes (15m, 1h, 4h, 1d)...")
+    return {tf: _fetch_single_tf(tf) for tf in ["15m", "1h", "4h", "1d"]}
+
+# ─── INDICATORS ──────────────────────────────────────────────────────────────
+def _compute_single_tf_indicators(df: pd.DataFrame, tf_label: str) -> pd.DataFrame:
+    c = df["close"].astype(float)
+    h = df["high"].astype(float)
+    l = df["low"].astype(float)
+    o = df["open"].astype(float)
+    v = df["volume"].astype(float)
+    pfx = f"tf_{tf_label}_"
+
+    for span in [8, 13, 21, 34, 55, 89, 200]:
+        df[f"{pfx}ema_{span}"] = ta.trend.EMAIndicator(c, window=span).ema_indicator()
+    for span in [20, 50, 200]:
+        df[f"{pfx}sma_{span}"] = ta.trend.SMAIndicator(c, window=span).sma_indicator()
+    for period in [7, 14, 21]:
+        df[f"{pfx}rsi_{period}"] = ta.momentum.RSIIndicator(c, window=period).rsi()
+
+    macd = ta.trend.MACD(c, window_slow=26, window_fast=12, window_sign=9)
+    df[f"{pfx}macd_line"] = macd.macd()
+    df[f"{pfx}macd_signal"] = macd.macd_signal()
+    df[f"{pfx}macd_hist"] = macd.macd_diff()
+
+    stoch = ta.momentum.StochasticOscillator(h, l, c, window=14, smooth_window=3)
+    df[f"{pfx}stoch_k"] = stoch.stoch()
+    df[f"{pfx}stoch_d"] = stoch.stoch_signal()
+
+    df[f"{pfx}adx_14"] = ta.trend.ADXIndicator(h, l, c, window=14).adx()
+    df[f"{pfx}atr_14"] = ta.volatility.AverageTrueRange(h, l, c, window=14).average_true_range()
+    df[f"{pfx}atr_pct"] = df[f"{pfx}atr_14"] / c
+
+    bb = ta.volatility.BollingerBands(c, window=20, window_dev=2)
+    df[f"{pfx}bb_upper"] = bb.bollinger_hband()
+    df[f"{pfx}bb_middle"] = bb.bollinger_mavg()
+    df[f"{pfx}bb_lower"] = bb.bollinger_lband()
+    df[f"{pfx}bb_width"] = (df[f"{pfx}bb_upper"] - df[f"{pfx}bb_lower"]) / df[f"{pfx}bb_middle"]
+
+    df[f"{pfx}cci_20"] = ta.trend.CCIIndicator(h, l, c, window=20).cci()
+    df[f"{pfx}willr_14"] = ta.momentum.WilliamsRIndicator(h, l, c, lbp=14).williams_r()
+    df[f"{pfx}mfi_14"] = ta.volume.MFIIndicator(h, l, c, v, window=14).money_flow_index()
+    df[f"{pfx}cmf_20"] = ta.volume.ChaikinMoneyFlowIndicator(h, l, c, v, window=20).chaikin_money_flow()
+
+    df[f"{pfx}obv"] = ta.volume.OnBalanceVolumeIndicator(c, v).on_balance_volume()
+    df[f"{pfx}obv_change"] = df[f"{pfx}obv"].pct_change() * 100
+    df[f"{pfx}obv_slope_5"] = df[f"{pfx}obv"].rolling(5).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) == 5 else 0, raw=False)
+
+    typical_price = (h + l + c) / 3
+    vwap_cum_vol = (typical_price * v).rolling(20).sum() / v.rolling(20).sum()
+    df[f"{pfx}vwap_dev"] = (c - vwap_cum_vol) / vwap_cum_vol * 100
+
+    for lag_name, lag_n in [("prev_1", 1), ("prev_3", 3)]:
+        for ind in ["rsi_14", "macd_hist", "macd_line", "ema_21", "stoch_k", "adx_14", "cci_20"]:
+            src_col = f"{pfx}{ind}"
+            if src_col in df.columns:
+                df[f"{pfx}{lag_name}_{ind}"] = df[src_col].shift(lag_n)
+
+    body = (c - o).abs()
+    total_range = h - l
+    upper_wick = h - pd.concat([c, o], axis=1).max(axis=1)
+    lower_wick = pd.concat([c, o], axis=1).min(axis=1) - l
+
+    df[f"{pfx}body_ratio"] = np.where(total_range > 0, body / total_range, 0.0)
+    df[f"{pfx}upper_wick_ratio"] = np.where(total_range > 0, upper_wick / total_range, 0.0)
+    df[f"{pfx}lower_wick_ratio"] = np.where(total_range > 0, lower_wick / total_range, 0.0)
+    df[f"{pfx}is_bullish"] = (c > o).astype(float)
+    df[f"{pfx}is_bearish"] = (c < o).astype(float)
+
+    bull = (c > o).astype(int)
+    df[f"{pfx}consec_bullish_2"] = (bull + bull.shift(1)).fillna(0)
+    df[f"{pfx}consec_bullish_3"] = (bull + bull.shift(1) + bull.shift(2)).fillna(0)
+
+    prev_bearish = df[f"{pfx}is_bearish"].shift(1)
+    df[f"{pfx}is_engulfing_bull"] = ((df[f"{pfx}is_bullish"] == 1.0) & (prev_bearish == 1.0) & (c > o.shift(1)) & (o < c.shift(1))).astype(float)
+    
+    prev_bullish = df[f"{pfx}is_bullish"].shift(1)
+    df[f"{pfx}is_engulfing_bear"] = ((df[f"{pfx}is_bearish"] == 1.0) & (prev_bullish == 1.0) & (c < o.shift(1)) & (o > c.shift(1))).astype(float)
+    
+    df[f"{pfx}is_hammer"] = ((body < total_range * 0.3) & (lower_wick > body * 2) & (upper_wick < body * 0.5)).astype(float)
+    df[f"{pfx}is_shooting_star"] = ((body < total_range * 0.3) & (upper_wick > body * 2) & (lower_wick < body * 0.5)).astype(float)
+
+    vol_sma20 = v.rolling(20).mean()
+    df[f"{pfx}volume_ratio"] = v / vol_sma20
+    df[f"{pfx}volume_expanding"] = (v > v.shift(1)).astype(float)
+
+    for n in [10, 20, 50]:
+        df[f"{pfx}high_{n}"] = h.rolling(n).max()
+        df[f"{pfx}low_{n}"] = l.rolling(n).min()
+
+    bars_52w = {"15m": 35040, "1h": 8760, "4h": 2190, "1d": 365}
+    n52 = min(bars_52w.get(tf_label, 8760), len(df))
+    high_52w = h.rolling(n52, min_periods=1).max()
+    df[f"{pfx}dist_from_52w_high"] = (high_52w - c) / high_52w * 100
+
+    if "timestamp" in df.columns:
+        df[f"{pfx}hour_utc"] = df["timestamp"].dt.hour
+        df[f"{pfx}day_of_week"] = df["timestamp"].dt.dayofweek
+
+    ema200 = df[f"{pfx}ema_200"]
+    df[f"{pfx}ema_200_slope"] = ema200.pct_change(20) * 100
+
+    atr10 = ta.volatility.AverageTrueRange(h, l, c, window=10).average_true_range()
+    hl2 = (h + l) / 2
+    basic_ub = hl2 + (3 * atr10)
+    basic_lb = hl2 - (3 * atr10)
+    
+    c_arr = c.values
+    ub_arr = basic_ub.values
+    lb_arr = basic_lb.values
+    st_arr = np.zeros(len(c))
+    dir_arr = np.ones(len(c))
+    
+    for i in range(1, len(c)):
+        if c_arr[i] > ub_arr[i-1]: dir_arr[i] = 1
+        elif c_arr[i] < lb_arr[i-1]: dir_arr[i] = -1
+        else:
+            dir_arr[i] = dir_arr[i-1]
+            if dir_arr[i] == 1 and lb_arr[i] < lb_arr[i-1]: lb_arr[i] = lb_arr[i-1]
+            if dir_arr[i] == -1 and ub_arr[i] > ub_arr[i-1]: ub_arr[i] = ub_arr[i-1]
+        st_arr[i] = lb_arr[i] if dir_arr[i] == 1 else ub_arr[i]
+        
+    df[f"{pfx}supertrend_10_3"] = st_arr
+    df[f"{pfx}close"] = c
+    df[f"{pfx}open"] = o
+    df[f"{pfx}high"] = h
+    df[f"{pfx}low"] = l
+    df[f"{pfx}volume"] = v
+
+    return df
+
+def compute_indicators(tf_dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    print("Computing indicators on each timeframe...")
+    enriched = {}
+    for tf, df in tf_dfs.items():
+        enriched[tf] = _compute_single_tf_indicators(df.copy(), tf)
+        
+    print("Merging timeframes into 15m base via forward-fill...")
+    base = enriched["15m"].copy().set_index("timestamp")
+    for tf_label in ["1h", "4h", "1d"]:
+        if tf_label not in enriched: continue
+        htf = enriched[tf_label].copy().set_index("timestamp")
+        raw_cols = ["open", "high", "low", "close", "volume"]
+        htf = htf.drop(columns=[c for c in raw_cols if c in htf.columns], errors="ignore")
+        htf_reindexed = htf.reindex(base.index, method="ffill")
+        base = base.join(htf_reindexed, how="left", rsuffix="_dup")
+        base = base[[c for c in base.columns if not c.endswith("_dup")]]
+        
+    base = base.ffill().dropna().reset_index()
+    print(f"Merged DataFrame: {len(base):,} rows × {len(base.columns)} columns")
+    return base
+
+# ─── BACKTEST ENGINE ─────────────────────────────────────────────────────────
+RISK_PCT = 0.010
+FEE      = 0.00055
+SLIPPAGE = 0.0005
+
+def run_backtest(df: pd.DataFrame) -> dict:
+    balance = 10_000.0
+    equity = [balance]
+    trades = []
+    position = None
+    cooldown_remaining = 0
+
+    closes  = df["tf_15m_close"].values
+    opens   = df["tf_15m_open"].values
+    highs   = df["tf_15m_high"].values
+    lows    = df["tf_15m_low"].values
+    timestamps = df["timestamp"].dt.strftime("%Y-%m-%d %H:%M").values
+    atr14   = df["tf_15m_atr_14"].values
+    atr_pct = df["tf_15m_atr_pct"].values
+
+    print("Running vector-loop backtest...")
+    
+    # Pre-evaluate boolean condition strings via eval
+    buy_cond = compile(BUY_CONDITIONS, '<string>', 'eval')
+    sell_cond = compile(SELL_CONDITIONS, '<string>', 'eval')
+
+    for i in range(WARMUP, len(df)):
+        # -- TICK OPEN POSITION --
+        if position is not None:
+            direction = position["direction"]
+            entry_price = position["entry_price"]
+            sl = position["sl"]
+            tp = position["tp"]
+            qty = position["qty"]
+            
+            c_open = opens[i]
+            c_high = highs[i]
+            c_low = lows[i]
+            c_close = closes[i]
+
+            exit_price = None
+            exit_reason = None
+
+            if TRAIL_MULT > 0:
+                atr_now = atr14[i]
+                if direction == "long":
+                    new_sl = c_close - (atr_now * TRAIL_MULT)
+                    if new_sl > sl: sl = new_sl; position["sl"] = sl
+                else:
+                    new_sl = c_close + (atr_now * TRAIL_MULT)
+                    if new_sl < sl: sl = new_sl; position["sl"] = sl
+
+            tp1_hit = position.get("tp1_hit", False)
+            if TP1_RATIO > 0 and not tp1_hit:
+                if direction == "long":
+                    tp1_price = entry_price + (tp - entry_price) * TP1_RATIO
+                    if c_high >= tp1_price:
+                        partial_qty = qty / 2
+                        position["qty"] -= partial_qty
+                        qty = position["qty"]
+                        position["tp1_hit"] = True
+                        actual_exit = tp1_price * (1 - SLIPPAGE)
+                        partial_pnl = (actual_exit - entry_price) * partial_qty - (partial_qty * actual_exit) * FEE
+                        position["partial_pnl"] = partial_pnl
+                        position["entry_fee_paid_for_partial"] = True
+                else:
+                    tp1_price = entry_price - (entry_price - tp) * TP1_RATIO
+                    if c_low <= tp1_price:
+                        partial_qty = qty / 2
+                        position["qty"] -= partial_qty
+                        qty = position["qty"]
+                        position["tp1_hit"] = True
+                        actual_exit = tp1_price * (1 + SLIPPAGE)
+                        partial_pnl = (entry_price - actual_exit) * partial_qty - (partial_qty * actual_exit) * FEE
+                        position["partial_pnl"] = partial_pnl
+                        position["entry_fee_paid_for_partial"] = True
+
+            if direction == "long":
+                if c_open <= sl: exit_price = c_open; exit_reason = "GAP_SL"
+                elif c_open >= tp: exit_price = c_open; exit_reason = "GAP_TP"
+                else:
+                    hit_sl = c_low <= sl; hit_tp = c_high >= tp
+                    if hit_sl and hit_tp:
+                        exit_price = tp if abs(c_open - tp) < abs(c_open - sl) else sl
+                        exit_reason = "TP" if exit_price == tp else "SL"
+                    elif hit_sl: exit_price = sl; exit_reason = "SL"
+                    elif hit_tp: exit_price = tp; exit_reason = "TP"
+            else: 
+                if c_open >= sl: exit_price = c_open; exit_reason = "GAP_SL"
+                elif c_open <= tp: exit_price = c_open; exit_reason = "GAP_TP"
+                else:
+                    hit_sl = c_high >= sl; hit_tp = c_low <= tp
+                    if hit_sl and hit_tp:
+                        exit_price = tp if abs(c_open - tp) < abs(c_open - sl) else sl
+                        exit_reason = "TP" if exit_price == tp else "SL"
+                    elif hit_sl: exit_price = sl; exit_reason = "SL"
+                    elif hit_tp: exit_price = tp; exit_reason = "TP"
+
+            if exit_price is not None:
+                actual_exit = exit_price * (1 - SLIPPAGE) if direction == "long" else exit_price * (1 + SLIPPAGE)
+                risk_amt = balance * RISK_PCT
+                if "TP" in exit_reason:
+                    pnl = risk_amt * RR_RATIO; is_win = True
+                else:
+                    pnl = (actual_exit - entry_price) * qty if direction == "long" else (entry_price - actual_exit) * qty
+                    is_win = False
+
+                notional_entry = qty * entry_price
+                notional_exit = qty * actual_exit
+                entry_fee_amt = notional_entry * FEE if not position.get("entry_fee_paid_for_partial") else (qty * entry_price) * FEE
+                pnl -= (entry_fee_amt + notional_exit * FEE)
+                pnl += position.get("partial_pnl", 0.0)
+                is_win = pnl > 0
+
+                balance_before = balance
+                balance += pnl
+                if balance <= 0: balance = 0.01
+
+                trades.append({
+                    "entry_time": position["entry_time"], "exit_time": timestamps[i],
+                    "direction": direction, "entry_price": entry_price, "exit_price": actual_exit,
+                    "pnl": pnl, "win": is_win, "balance_after": balance
+                })
+                equity.append(balance)
+                position = None
+                cooldown_remaining = COOLDOWN
+                continue
+
+        # -- OPEN NEW POSITION --
+        if position is None and cooldown_remaining <= 0:
+            if atr_pct[i] < ATR_GATE:
+                cooldown_remaining = max(0, cooldown_remaining - 1)
+                continue
+
+            row_dict = df.iloc[i].to_dict()
+            try:
+                buy_signal = eval(buy_cond, {"__builtins__": {}}, row_dict)
+                sell_signal = eval(sell_cond, {"__builtins__": {}}, row_dict)
+            except:
+                cooldown_remaining = max(0, cooldown_remaining - 1)
+                continue
+
+            entry_base = closes[i]
+            atr_now = atr14[i]
+
+            if buy_signal and not sell_signal:
+                actual_entry = entry_base * (1 + SLIPPAGE)
+                sl = actual_entry - atr_now * SL_MULT
+                tp = actual_entry + atr_now * RR_RATIO
+                risk = balance * RISK_PCT
+                qty = risk / (actual_entry - sl) if actual_entry > sl else 0
+                if qty > 0: position = {"entry_time": timestamps[i], "entry_price": actual_entry, "sl": sl, "tp": tp, "direction": "long", "qty": qty}
+            elif sell_signal and not buy_signal:
+                actual_entry = entry_base * (1 - SLIPPAGE)
+                sl = actual_entry + atr_now * SL_MULT
+                tp = actual_entry - atr_now * RR_RATIO
+                risk = balance * RISK_PCT
+                qty = risk / (sl - actual_entry) if sl > actual_entry else 0
+                if qty > 0: position = {"entry_time": timestamps[i], "entry_price": actual_entry, "sl": sl, "tp": tp, "direction": "short", "qty": qty}
+
+        cooldown_remaining = max(0, cooldown_remaining - 1)
+
+    # Compute final metrics
+    wins = [t for t in trades if t["win"]]
+    win_rate = (len(wins) / len(trades) * 100) if trades else 0.0
+    cagr = ((balance / 10_000.0) ** (1 / YEARS) - 1) * 100 if balance > 0 else 0.0
+    
+    peak = 10_000.0
+    max_dd = 0.0
+    for t in trades:
+        b = t["balance_after"]
+        if b > peak: peak = b
+        dd = (peak - b) / peak * 100
+        if dd > max_dd: max_dd = dd
+        
+    profit_factor = sum(t["pnl"] for t in wins) / abs(sum(t["pnl"] for t in trades if t["pnl"] <= 0)) if sum(t["pnl"] for t in trades if t["pnl"] <= 0) != 0 else 99.0
+    avg_monthly_return = cagr / 12
+    sharpe = (cagr / max_dd) if max_dd > 0 else 0
+
+    return {
+        "trades": trades,
+        "metrics": {
+            "total_trades": len(trades),
+            "win_rate": win_rate,
+            "cagr": cagr,
+            "max_drawdown": max_dd,
+            "sharpe": sharpe,
+            "profit_factor": profit_factor,
+            "avg_monthly_return": avg_monthly_return
+        }
+    }
+
+# ─── MAIN ────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    tf_data = fetch_all_timeframes()
+    df = compute_indicators(tf_data)
+    result = run_backtest(df)
+    
+    m = result['metrics']
+    print("\n" + "="*50)
+    print(f"Total trades:       {m['total_trades']}")
+    print(f"Win rate:           {m['win_rate']:.1f}%")
+    print(f"CAGR:               {m['cagr']:.2f}%")
+    print(f"Max drawdown:       {m['max_drawdown']:.2f}%")
+    print(f"Sharpe:             {m['sharpe']:.3f}")
+    print(f"Profit factor:      {m['profit_factor']:.3f}")
+    print(f"Avg monthly return: {m['avg_monthly_return']:.2f}%")
+    print("="*50 + "\n")
+    
+    if result['trades']:
+        df_trades = pd.DataFrame(result['trades'])
+        csv_name = "trades_{{ s.id[:8] }}.csv"
+        df_trades.to_csv(csv_name, index=False)
+        print(f"Trade log saved to {csv_name}")
+    
+    if abs(m['cagr'] - DB_CAGR) > 0.1:
+        print(f"WARNING: Output CAGR ({m['cagr']:.2f}%) does not match DB CAGR ({DB_CAGR:.2f}%) within 0.1% tolerance.")
+        print("         This script may be out of sync with the DB record, or data has shifted.")
+    else:
+        print("SUCCESS: Backtest CAGR matches DB record.")

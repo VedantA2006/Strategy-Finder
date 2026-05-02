@@ -278,6 +278,22 @@ def api_top():
     return jsonify([s.to_dict() for s in strategies])
 
 
+@app.route("/strategy/<strategy_id>/download/code")
+def download_code(strategy_id):
+    s = db.get(strategy_id)
+    if not s:
+        return "Strategy not found", 404
+        
+    import datetime
+    now_str = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+    content = render_template("backtest_script.py.jinja", s=s, datetime=now_str)
+    
+    return Response(
+        content,
+        mimetype="text/x-python",
+        headers={"Content-disposition": f"attachment; filename=backtest_{s.name}.py"}
+    )
+
 @app.route("/api/export/<strategy_id>")
 def api_export(strategy_id: str):
     """Returns a Python code string ready for hybrid_system.py."""

@@ -37,6 +37,7 @@
         </div>
         <div style="display:flex; gap:0.5rem;">
             <a href="/strategy/{{ s.id }}/download/backtest" class="btn btn-secondary">Trades CSV</a>
+            <a href="/strategy/{{ s.id }}/download/code" class="btn btn-secondary">Backtest Code (.py)</a>
             <a href="/strategy/{{ s.id }}/download/report" class="btn btn-secondary">Full Report</a>
             <button class="btn btn-primary" onclick="exportCode('{{ s.id }}')">
                 <span>&lt;/&gt;</span> Export to python
