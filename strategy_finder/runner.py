@@ -43,9 +43,13 @@ def emit_event(queue, event_name, payload):
         queue.put({"event": event_name, "data": payload})
 
 def prune_conditions(strategy: Strategy, data: pd.DataFrame) -> Strategy:
+    """Prune conditions using TRAIN data only (first 60%) to avoid val data leakage."""
     import copy
     from generator import _split_clauses
     recent_data = data.iloc[-17280:].copy() if len(data) > 17280 else data.copy()
+    # Use only first 60% as train split — val data stays unseen
+    train_cutoff = int(len(recent_data) * 0.6)
+    train_data = recent_data.iloc[:train_cutoff].copy()
     
     for direction in ["buy", "sell"]:
         while True:
@@ -54,7 +58,7 @@ def prune_conditions(strategy: Strategy, data: pd.DataFrame) -> Strategy:
             if len(clauses) <= 1:
                 break
                 
-            base_res = _run_engine(recent_data, strategy, "val")
+            base_res = _run_engine(train_data, strategy, "val")
             if not base_res: break
             base_score = score(base_res["metrics"], strategy)
             
@@ -75,7 +79,7 @@ def prune_conditions(strategy: Strategy, data: pd.DataFrame) -> Strategy:
                 test_s = copy.deepcopy(strategy)
                 setattr(test_s, f"{direction}_conditions", test_conds)
                 
-                res = _run_engine(recent_data, test_s, "val")
+                res = _run_engine(train_data, test_s, "val")
                 if res:
                     s_score = score(res["metrics"], test_s)
                     if s_score >= best_pruned_score:
@@ -372,6 +376,10 @@ def run_forever() -> None:
     drainer = threading.Thread(target=event_drainer, args=(event_queue,), daemon=True)
     drainer.start()
     
+    # Persistent multiprocessing pool — created once, reused every generation
+    pool_size = multiprocessing.cpu_count()
+    pool = multiprocessing.Pool(pool_size)
+    
     current_all_time_best = db.top1().metrics.get("score", 0) if db.top1() else 0
     
     # Replay GP memory
@@ -474,10 +482,9 @@ def run_forever() -> None:
         scored_count = 0
         scores_this_gen = []
         
-        pool_size = multiprocessing.cpu_count()
         tasks = [(s, asset_data[s.asset], asset_data.get("ETHUSDT") if s.asset == "BTCUSDT" else None, event_queue) for s in batch]
         
-        with multiprocessing.Pool(pool_size) as pool:
+        try:
             for s_res in pool.imap_unordered(_evaluate_worker, tasks):
                 if s_res is not None:
                     db.save_gp_observation(s_res.asset, s_res.params_vector, s_res.metrics["score"])
@@ -511,7 +518,7 @@ def run_forever() -> None:
                     })
                     
                     # HoF event
-                    if s_res.metrics.get("score", 0) > HOF_SCORE_THRESHOLD: # simplified HoF gate
+                    if s_res.metrics.get("score", 0) > HOF_SCORE_THRESHOLD:
                         emit_event(event_queue, "strategy_event", {
                             "phase": "hall_of_fame",
                             "id": s_res.id[:8],
@@ -523,12 +530,16 @@ def run_forever() -> None:
                     db.save(s_res)
                     try:
                         from telegram_alerts import send_strategy_alert
-                        send_strategy_alert(s_res)
+                        send_strategy_alert(s_res, db)
                     except Exception:
                         pass
                     next_population.append(s_res)
                     scores_this_gen.append(s_res.metrics["score"])
                     scored_count += 1
+        except Exception as e:
+            log.error(f"Pool error: {e}. Recreating pool.")
+            pool.terminate()
+            pool = multiprocessing.Pool(pool_size)
 
         # ── 4. Housekeeping ──────────────────────────────────────────────
         success_rate = mutations_improved / max(1, mutations_attempted)

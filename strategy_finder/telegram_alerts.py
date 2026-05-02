@@ -17,16 +17,31 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8640865202:AAHw3_WwwX
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "5508995431")
 
 
-def send_strategy_alert(strategy: Strategy) -> None:
-    """Send a Telegram alert for a strategy that passed all gates."""
+def send_strategy_alert(strategy: Strategy, db=None) -> None:
+    """Send a Telegram alert for a strategy that passed all gates.
+    Deduplicates: only alerts if strategy is new or score improved >10%.
+    """
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
+
+    try:
+        # Deduplication check via MongoDB
+        if db is not None:
+            existing = db.strategies_col.find_one({"id": strategy.id}, {"telegram_alerted_at": 1, "score": 1})
+            if existing and existing.get("telegram_alerted_at"):
+                old_score = existing.get("score", 0)
+                new_score = strategy.metrics.get("score", 0)
+                # Only re-alert if score improved by >10%
+                if old_score > 0 and new_score <= old_score * 1.10:
+                    return
+    except Exception:
+        pass
 
     try:
         annual_cagr = strategy.metrics.get("cagr", 0)
         monthly_cagr = ((1 + annual_cagr / 100) ** (1/12) - 1) * 100
 
-        # Threshold checks — return silently if any fail
+        # Threshold checks -- return silently if any fail
         if strategy.metrics.get("max_drawdown", 100) >= 8.0:
             return
         if strategy.metrics.get("win_rate", 0) < 50.0:
@@ -43,6 +58,7 @@ def send_strategy_alert(strategy: Strategy) -> None:
         mc_dd = getattr(strategy, "mc_drawdown_p95", 0)
         param_sens = getattr(strategy, "parameter_sensitivity", 0)
         wf_ratio = getattr(strategy, "walk_forward_ratio", 0)
+        expected_r = round(strategy.rr_ratio / strategy.sl_mult, 2)
 
         message = (
             f"\U0001f7e2 *New Strategy Passed*\n\n"
@@ -63,6 +79,7 @@ def send_strategy_alert(strategy: Strategy) -> None:
             f"- Walk Forward Ratio: {wf_ratio:.2f}\n\n"
             f"\u2699\ufe0f *Parameters*\n"
             f"- SL Mult: {strategy.sl_mult} | RR Ratio: {strategy.rr_ratio}\n"
+            f"- Expected R-Multiple: {expected_r}R\n"
             f"- Cooldown: {strategy.cooldown} bars | ATR Gate: {strategy.atr_gate}\n"
             f"- Trail Mult: {strategy.trail_mult} | TP1 Ratio: {strategy.tp1_ratio}\n\n"
             f"\U0001f4cb *Conditions*\n"
@@ -80,6 +97,13 @@ def send_strategy_alert(strategy: Strategy) -> None:
 
         if resp.status_code == 200:
             log.info(f"Telegram alert sent for {strategy.name}")
+            # Mark as alerted in MongoDB
+            if db is not None:
+                import datetime
+                db.strategies_col.update_one(
+                    {"id": strategy.id},
+                    {"$set": {"telegram_alerted_at": datetime.datetime.utcnow().isoformat()}}
+                )
         else:
             log.warning(f"Telegram alert failed: {resp.status_code} {resp.text}")
 
