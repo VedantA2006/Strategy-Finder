@@ -1,5 +1,5 @@
 """
-runner.py — Professional multi-asset, genetic algorithm discovery engine.
+runner.py - Professional multi-asset, genetic algorithm discovery engine.
 
 Features:
   - Multi-timeframe data loading across BTC, ETH, SOL.
@@ -16,6 +16,9 @@ import random
 import logging
 import copy
 import numpy as np
+import pandas as pd
+
+HOF_SCORE_THRESHOLD = 10.0
 
 from indicators import load_data, ASSETS
 from generator import generate_random_strategy, build_strategy_from_params, mutate_strategy, crossover, AdaptiveMutationConfig, update_category_weights
@@ -158,15 +161,16 @@ def _evaluate_worker(args: tuple) -> Strategy | None:
         return None
         
     # Robustness pipeline
-    if not run_robustness(s, data, res):
-        emit_event(event_queue, "strategy_event", {"phase": "robustness_failed", "id": s.id[:8], "reason": "mc_drawdown", "value": getattr(s, "mc_drawdown_p95", 0), "threshold": 0, "timestamp": now_iso()})
+    passed, reason = run_robustness(s, data, res)
+    if not passed:
+        emit_event(event_queue, "strategy_event", {"phase": "robustness_failed", "id": s.id[:8], "reason": reason, "value": getattr(s, "mc_drawdown_p95", 0), "threshold": 0, "timestamp": now_iso()})
         return None
         
     s.metrics = res["metrics"]
     s.metrics["score"] = score(s.metrics, s)
     
     if s.metrics["score"] > -999:
-        if s.metrics["score"] > 5.0 and s.asset == "BTCUSDT" and eth_data is not None:
+        if s.metrics["score"] > HOF_SCORE_THRESHOLD and s.asset == "BTCUSDT" and eth_data is not None:
             eth_res = backtest(eth_data, s)
             if eth_res and score(eth_res["metrics"], s) > 0:
                 s.metrics["score"] *= 1.2
@@ -293,21 +297,24 @@ def _regime_breakdown(strategy: Strategy, data: pd.DataFrame, trades: list[dict]
     strategy.regime_sideways_wr = (side_wins / side_total * 100) if side_total > 0 else 0
 
 
-def run_robustness(strategy: Strategy, data: pd.DataFrame, base_res: dict) -> bool:
+def run_robustness(strategy: Strategy, data: pd.DataFrame, base_res: dict) -> tuple[bool, str]:
     """Run full robustness suite. Return True if it passes internal checks."""
     metrics = base_res["metrics"]
     trades = base_res["trades"]
     
     strategy.mc_drawdown_p95 = _monte_carlo_dd(trades)
-    
-    # Base score for sensitivity
+    if strategy.mc_drawdown_p95 > 15.0:
+        return False, "mc_drawdown"
+        
     base_score = score(metrics, strategy)
-    if base_score <= 0: return False
+    if base_score <= 0: return False, "base_score"
     
     strategy.parameter_sensitivity = _parameter_sensitivity(strategy, data, base_score)
+    if strategy.parameter_sensitivity > 0.30:
+        return False, "parameter_sensitivity"
+        
     _regime_breakdown(strategy, data, trades)
-    
-    return True
+    return True, ""
 
 
 # ─── Genetic Algorithm ───────────────────────────────────────────────────────
@@ -333,9 +340,9 @@ def event_drainer(q):
             pass
 
 def run_forever() -> None:
-    """Main discovery loop — runs until interrupted."""
+    """Main discovery loop - runs until interrupted."""
     log.info("=" * 60)
-    log.info("Strategy Finder — Professional Discovery Engine")
+    log.info("Strategy Finder - Professional Discovery Engine")
     log.info("=" * 60)
 
     # 1. Load Data for All Assets
@@ -414,9 +421,9 @@ def run_forever() -> None:
                     templ = random.choice(top_templates)
                     child = generate_random_strategy(generation, asset)
                     if templ["direction"] == "buy":
-                        child.buy_conditions = f"({templ['clause']}) and {child.buy_conditions}"
+                        child.buy_conditions = f"({templ['clause'].strip('() ')}) and ({child.buy_conditions.strip('() ')})"
                     else:
-                        child.sell_conditions = f"({templ['clause']}) and {child.sell_conditions}"
+                        child.sell_conditions = f"({templ['clause'].strip('() ')}) and ({child.sell_conditions.strip('() ')})"
                     child._origin = "random"
                     batch.append(child)
                     continue
@@ -469,7 +476,7 @@ def run_forever() -> None:
                         if s_res.metrics.get("score", 0) > s_res._parent_score:
                             mutations_improved += 1
                     
-                    if s_res.metrics.get("score", 0) > 5.0:
+                    if s_res.metrics.get("score", 0) > HOF_SCORE_THRESHOLD:
                         run_holdout_eval(s_res, asset_data[s_res.asset])
                         
                     is_new_best = s_res.metrics.get("score", 0) > current_all_time_best
@@ -493,7 +500,7 @@ def run_forever() -> None:
                     })
                     
                     # HoF event
-                    if s_res.metrics.get("score", 0) > 10.0: # simplified HoF gate
+                    if s_res.metrics.get("score", 0) > HOF_SCORE_THRESHOLD: # simplified HoF gate
                         emit_event(event_queue, "strategy_event", {
                             "phase": "hall_of_fame",
                             "id": s_res.id[:8],

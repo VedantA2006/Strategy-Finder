@@ -234,3 +234,34 @@ TypeError: Object of type bool is not JSON serializable
 2026-05-03 02:06:23,735 [INFO] Gen    1 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
 2026-05-03 02:07:35,191 [INFO] Gen    2 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
 2026-05-03 02:08:56,235 [INFO] Gen    3 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:10:00,450 [INFO] Gen    4 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 02:12:08,617 [ERROR] Fatal error: 'metrics'
+multiprocessing.pool.RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\multiprocessing\pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+                    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 161, in _evaluate_worker
+    if not run_robustness(s, data, res):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 298, in run_robustness
+    metrics = base_res["metrics"]
+              ~~~~~~~~^^^^^^^^^^^
+KeyError: 'metrics'
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 619, in <module>
+    run_forever()
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 463, in run_forever
+    for s_res in pool.imap_unordered(_evaluate_worker, tasks):
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\multiprocessing\pool.py", line 873, in next
+    raise value
+KeyError: 'metrics'
+2026-05-03 02:16:18,375 [INFO] ============================================================
+2026-05-03 02:16:18,376 [INFO] Strategy Finder - Professional Discovery Engine
+2026-05-03 02:16:18,376 [INFO] ============================================================
+2026-05-03 02:16:18,376 [INFO] Loading data for BTCUSDT ...

@@ -106,7 +106,7 @@ def backtest(df: pd.DataFrame, strategy: Strategy) -> dict | None:
     safe_trades = full_res["trades"][-200:] if len(full_res["trades"]) > 200 else full_res["trades"]
     strategy.trade_log_json = json.dumps(safe_trades)
 
-    return full_res["metrics"]
+    return full_res
 
 
 def _run_engine(df: pd.DataFrame, strategy: Strategy, phase: str) -> dict | None:

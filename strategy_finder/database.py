@@ -27,6 +27,7 @@ class StrategyDatabase:
     def __init__(self, db_path: str | pathlib.Path = DB_PATH):
         self.db_path = str(db_path)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.row_factory = sqlite3.Row
         self._create_tables()
 
@@ -283,7 +284,7 @@ class StrategyDatabase:
         self.conn.commit()
 
     def load_gp_observations(self) -> dict[str, list[tuple[list[float], float]]]:
-        rows = self.conn.execute("SELECT asset, params_json, score FROM gp_observations").fetchall()
+        rows = self.conn.execute("SELECT asset, params_json, score FROM gp_observations ORDER BY id DESC LIMIT 5000").fetchall()
         obs = {}
         for r in rows:
             asset = r["asset"]
@@ -349,6 +350,7 @@ class StrategyDatabase:
             VALUES (?, ?, ?, ?, ?, ?)
         """, (generation, tested, best_score, mean_score, diversity,
               datetime.datetime.utcnow().isoformat()))
+        self.conn.execute("DELETE FROM generation_stats WHERE id NOT IN (SELECT id FROM generation_stats ORDER BY id DESC LIMIT 1000)")
         self.conn.commit()
 
     def recent_logs(self, n: int = 20) -> list[dict]:
