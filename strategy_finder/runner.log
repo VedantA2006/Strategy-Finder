@@ -302,3 +302,62 @@ KeyError: 'metrics'
 2026-05-03 02:43:38,253 [INFO] Loaded 0 past GP observations from memory.
 2026-05-03 02:48:17,910 [INFO] Gen    1 | Tested 200 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
 2026-05-03 02:53:17,075 [INFO] Gen    2 | Tested 200 | Scored   0 | Div: 1.00 | Top:     0.00 | MutSR: 0.00 | DB:   0
+2026-05-03 03:06:23,968 [INFO] ============================================================
+2026-05-03 03:06:23,969 [INFO] Strategy Finder - Professional Discovery Engine
+2026-05-03 03:06:23,969 [INFO] ============================================================
+2026-05-03 03:06:23,970 [INFO] Loading data for BTCUSDT ...
+2026-05-03 03:06:55,885 [INFO] All market data loaded.
+2026-05-03 03:06:57,486 [ERROR] Fatal error: The field 'key' for an _id index must be {_id: 1}, but got { _id: -1 }, full error: {'ok': 0.0, 'errmsg': "The field 'key' for an _id index must be {_id: 1}, but got { _id: -1 }", 'code': 2, 'codeName': 'BadValue', '$clusterTime': {'clusterTime': Timestamp(1777757817, 6), 'signature': {'hash': b'(\xd0\xe1\x83_\xc7\xb3\xc9\xb8x"u\xe1\x1b\xf5\xe5\xfe \t\xed', 'keyId': 7581613684082868225}}, 'operationTime': Timestamp(1777757817, 6)}
+Traceback (most recent call last):
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 642, in <module>
+    run_forever()
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\runner.py", line 366, in run_forever
+    db = StrategyDatabase()
+         ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\database.py", line 68, in __init__
+    self._create_indexes()
+  File "C:\Users\vedan\OneDrive\Desktop\Straegy Finder\strategy_finder\database.py", line 168, in _create_indexes
+    self.gp_col.create_index([("_id", DESCENDING)])
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\collection.py", line 2391, in create_index
+    return (self._create_indexes([index], session, **cmd_options))[0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\collection.py", line 2273, in _create_indexes
+    return self.database.client._retryable_write(False, inner, session, _Op.CREATE_INDEXES)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 2113, in _retryable_write
+    return self._retry_with_session(retryable, func, s, bulk, operation, operation_id)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 1986, in _retry_with_session
+    return self._retry_internal(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 2038, in _retry_internal
+    ).run()
+      ^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 2811, in run
+    res = self._read() if self._is_read else self._write()
+                                             ^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\mongo_client.py", line 3014, in _write
+    return self._func(self._session, conn, self._retryable)  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\collection.py", line 2263, in inner
+    self._command(
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\collection.py", line 615, in _command
+    return conn.command(
+           ^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\helpers.py", line 53, in inner
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\pool.py", line 403, in command
+    return command(
+           ^^^^^^^^
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\synchronous\network.py", line 212, in command
+    helpers_shared._check_command_response(
+  File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\site-packages\pymongo\helpers_shared.py", line 284, in _check_command_response
+    raise OperationFailure(errmsg, code, response, max_wire_version)
+pymongo.errors.OperationFailure: The field 'key' for an _id index must be {_id: 1}, but got { _id: -1 }, full error: {'ok': 0.0, 'errmsg': "The field 'key' for an _id index must be {_id: 1}, but got { _id: -1 }", 'code': 2, 'codeName': 'BadValue', '$clusterTime': {'clusterTime': Timestamp(1777757817, 6), 'signature': {'hash': b'(\xd0\xe1\x83_\xc7\xb3\xc9\xb8x"u\xe1\x1b\xf5\xe5\xfe \t\xed', 'keyId': 7581613684082868225}}, 'operationTime': Timestamp(1777757817, 6)}

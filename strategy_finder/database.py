@@ -165,7 +165,6 @@ class StrategyDatabase:
         self.strategies_col.create_index([("is_correlated", ASCENDING)])
         self.strategies_col.create_index([("asset", ASCENDING)])
         self.strategies_col.create_index([("created_at", DESCENDING)])
-        self.gp_col.create_index([("_id", DESCENDING)])
         self.cond_templates_col.create_index([("clause", ASCENDING)], unique=True)
 
     # ── Save / Retrieve ──────────────────────────────────────────────────
