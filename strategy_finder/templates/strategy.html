@@ -135,7 +135,8 @@
                                             {% set r = [val|abs * 15, 200]|min %}
                                         {% endif %}
                                         {% set bg_color = "rgba(" ~ r|string ~ ", " ~ g|string ~ ", 0, 0.4)" %}
-                                        <td style="padding:8px; border:1px solid var(--glass-border); background-color: {{ bg_color }}; color: white; font-family:'Fira Code';">
+                                        {% set td_style = 'style="padding:8px; border:1px solid var(--glass-border); background-color: ' ~ bg_color ~ '; color: white; font-family:\\'Fira Code\\';"' %}
+                                        <td {{ td_style|safe }}>
                                             {{ "%.1f"|format(val) }}%
                                         </td>
                                     {% else %}
@@ -228,7 +229,8 @@
                                 <td style="padding:8px;">{{ y_stat.trades }}</td>
                                 <td style="padding:8px;">{{ "%.1f"|format(y_stat.win_rate) }}%</td>
                                 {% set net_color = '#22c55e' if y_stat.net_return_pct > 0 else '#ef4444' %}
-                                <td style="padding:8px; color: {{ net_color }};">{{ "%.1f"|format(y_stat.net_return_pct) }}%</td>
+                                {% set net_style = 'style="padding:8px; color: ' ~ net_color ~ ';"' %}
+                                <td {{ net_style|safe }}>{{ "%.1f"|format(y_stat.net_return_pct) }}%</td>
                                 <td style="padding:8px; color: #ef4444;">{{ "%.1f"|format(y_stat.max_drawdown) }}%</td>
                                 <td style="padding:8px;">{{ "%.2f"|format(y_stat.sharpe) }}</td>
                             </tr>
