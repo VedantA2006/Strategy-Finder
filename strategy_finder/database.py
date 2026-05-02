@@ -94,21 +94,49 @@ class StrategyDatabase:
                 timestamp   TEXT
             );
         """)
+            CREATE TABLE IF NOT EXISTS gp_observations (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                asset       TEXT,
+                params_json TEXT,
+                score       REAL,
+                recorded_at TEXT
+            );
+            
+            CREATE TABLE IF NOT EXISTS category_stats (
+                category    TEXT PRIMARY KEY,
+                appearances_top20   INTEGER DEFAULT 0,
+                appearances_total   INTEGER DEFAULT 0,
+                updated_at  TEXT
+            );
+            
+            CREATE TABLE IF NOT EXISTS condition_templates (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                clause      TEXT UNIQUE,
+                times_in_top20  INTEGER DEFAULT 0,
+                avg_score_when_present  REAL DEFAULT 0.0,
+                direction   TEXT,
+                updated_at  TEXT
+            );
+        """)
         # Safe alter for existing DBs
         try:
             self.conn.execute("ALTER TABLE strategies ADD COLUMN p_value REAL DEFAULT 1.0")
-        except sqlite3.OperationalError:
-            pass
-        try:
             self.conn.execute("ALTER TABLE strategies ADD COLUMN is_correlated INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
-        try:
             self.conn.execute("ALTER TABLE strategies ADD COLUMN avg_monthly_return REAL DEFAULT 0.0")
             self.conn.execute("ALTER TABLE strategies ADD COLUMN overfit_score REAL DEFAULT 0.0")
             self.conn.execute("ALTER TABLE strategies ADD COLUMN deep_stats_json TEXT")
         except sqlite3.OperationalError:
             pass
+            
+        try:
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN parent_a_id TEXT DEFAULT ''")
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN parent_b_id TEXT DEFAULT ''")
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN holdout_cagr REAL DEFAULT 0.0")
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN holdout_win_rate REAL DEFAULT 0.0")
+            self.conn.execute("ALTER TABLE strategies ADD COLUMN holdout_trades INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+            
         self.conn.commit()
 
     # ── CRUD ─────────────────────────────────────────────────────────────
@@ -164,20 +192,22 @@ class StrategyDatabase:
         
         self.conn.execute("""
             INSERT OR REPLACE INTO strategies
-            (id, name, generation, asset, params_json, buy_conditions, sell_conditions,
+            (id, name, generation, asset, parent_a_id, parent_b_id, params_json, buy_conditions, sell_conditions,
              total_return, cagr, win_rate, dollar_rr, profit_factor,
              max_drawdown, max_dd_duration, sharpe, trades_per_month, score,
              walk_forward_ratio, mc_drawdown_p95, parameter_sensitivity,
              regime_bull_wr, regime_bear_wr, regime_sideways_wr, validation_cagr,
              p_value, is_correlated, avg_monthly_return, overfit_score,
              condition_complexity, n_timeframes_used,
+             holdout_cagr, holdout_win_rate, holdout_trades,
              equity_curve, monthly_returns_json, trade_log_json, deep_stats_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?)
         """, (
-            s.id, s.name, s.generation, s.asset,
+            s.id, s.name, s.generation, s.asset, s.parent_a_id, s.parent_b_id,
             json.dumps(params),
             s.buy_conditions, s.sell_conditions,
             
@@ -207,6 +237,10 @@ class StrategyDatabase:
             
             s.condition_complexity,
             s.n_timeframes_used,
+            
+            s.holdout_cagr,
+            s.holdout_win_rate,
+            s.holdout_trades,
             
             json.dumps(m.get("equity_curve", [])),
             s.monthly_returns_json,
@@ -238,6 +272,25 @@ class StrategyDatabase:
         
         # We NEVER remove from Hall of Fame per requirements!
         self.conn.commit()
+
+    # ── GP Memory ────────────────────────────────────────────────────────
+    
+    def save_gp_observation(self, asset: str, params_vector: list[float], score: float) -> None:
+        self.conn.execute("""
+            INSERT INTO gp_observations (asset, params_json, score, recorded_at)
+            VALUES (?, ?, ?, ?)
+        """, (asset, json.dumps(params_vector), score, datetime.datetime.utcnow().isoformat()))
+        self.conn.commit()
+
+    def load_gp_observations(self) -> dict[str, list[tuple[list[float], float]]]:
+        rows = self.conn.execute("SELECT asset, params_json, score FROM gp_observations").fetchall()
+        obs = {}
+        for r in rows:
+            asset = r["asset"]
+            if asset not in obs:
+                obs[asset] = []
+            obs[asset].append((json.loads(r["params_json"]), r["score"]))
+        return obs
 
     def get(self, strategy_id: str) -> Optional[Strategy]:
         """Fetch a single strategy by ID."""
@@ -353,6 +406,12 @@ class StrategyDatabase:
             n_timeframes_used=row["n_timeframes_used"],
             monthly_returns_json=row["monthly_returns_json"],
             trade_log_json=row["trade_log_json"],
+            parent_a_id=row.keys() and "parent_a_id" in row.keys() and row["parent_a_id"] or "",
+            parent_b_id=row.keys() and "parent_b_id" in row.keys() and row["parent_b_id"] or "",
+            holdout_cagr=row.keys() and "holdout_cagr" in row.keys() and row["holdout_cagr"] or 0.0,
+            holdout_win_rate=row.keys() and "holdout_win_rate" in row.keys() and row["holdout_win_rate"] or 0.0,
+            holdout_trades=row.keys() and "holdout_trades" in row.keys() and row["holdout_trades"] or 0,
+            deep_stats_json=row.keys() and "deep_stats_json" in row.keys() and row["deep_stats_json"] or "{}",
             
             metrics={
                 "total_return_pct":     row["total_return"],

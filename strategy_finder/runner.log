@@ -211,3 +211,13 @@ Traceback (most recent call last):
   File "C:\Users\vedan\AppData\Local\Programs\Python\Python311\Lib\multiprocessing\pool.py", line 873, in next
     raise value
 TypeError: Object of type bool is not JSON serializable
+2026-05-03 01:50:40,707 [INFO] ============================================================
+2026-05-03 01:50:40,707 [INFO] Strategy Finder — Professional Discovery Engine
+2026-05-03 01:50:40,707 [INFO] ============================================================
+2026-05-03 01:50:40,707 [INFO] Loading data for BTCUSDT ...
+2026-05-03 01:51:07,671 [INFO] All market data loaded.
+2026-05-03 01:52:09,831 [INFO] Gen    1 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0
+2026-05-03 01:53:26,176 [INFO] Gen    2 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0
+2026-05-03 01:54:25,790 [INFO] Gen    3 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0
+2026-05-03 01:55:26,461 [INFO] Gen    4 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0
+2026-05-03 01:56:40,935 [INFO] Gen    5 | Tested  50 | Scored   0 | Div: 1.00 | Top:     0.00 | DB:   0

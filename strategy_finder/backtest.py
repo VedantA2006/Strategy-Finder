@@ -25,48 +25,77 @@ FEE      = 0.00055     # 0.055% per side (Bybit taker)
 SLIPPAGE = 0.0005      # 0.05% slippage on entry and exit
 WARMUP   = 200         # skip first N bars for indicator warmup
 
+WF_WINDOWS = [
+    (0.60, 0.60, 0.75),
+    (0.65, 0.65, 0.80),
+    (0.70, 0.70, 0.85),
+    (0.75, 0.75, 0.90),
+    (0.80, 0.80, 1.00),
+]
+
 
 def backtest(df: pd.DataFrame, strategy: Strategy) -> dict | None:
     """
-    Run a full backtest with built-in walk-forward validation.
-    Splits data into 80% train and 20% validation.
-    Returns None if validation fails or trades are insufficient.
+    Run a full backtest with 5-window walk-forward validation.
+    Returns None if validation fails (< 4/5 pass) or trades are insufficient.
     """
+    from indicators import HOLDOUT_CUTOFF
     if strategy.rr_ratio / strategy.sl_mult < 1.5:
         return None
 
-    split_idx = int(len(df) * 0.8)
-    train_df = df.iloc[:split_idx].copy()
-    val_df = df.iloc[split_idx:].copy()
-
-    # 1. Run Train
-    train_res = _run_engine(train_df, strategy, "train")
-    if train_res is None or train_res["metrics"]["total_trades"] < 30:
-        return None
-        
-    train_cagr = train_res["metrics"]["cagr"]
-    if train_cagr <= 0:
+    # Exclude holdout set
+    df = df[df["timestamp"] <= HOLDOUT_CUTOFF].copy()
+    if len(df) < WARMUP + 100:
         return None
 
-    # 2. Run Validation
-    val_res = _run_engine(val_df, strategy, "val")
-    if val_res is None or val_res["metrics"]["total_trades"] < 5:
-        return None
-        
-    val_cagr = val_res["metrics"]["cagr"]
+    total_len = len(df)
+    window_ratios = []
 
-    # 3. Walk-Forward Check
-    wf_ratio = val_cagr / train_cagr if train_cagr > 0 else 0
-    if wf_ratio < 0.5:
+    # 5-Window Walk-Forward
+    for train_end_pct, val_start_pct, val_end_pct in WF_WINDOWS:
+        train_end_idx = int(total_len * train_end_pct)
+        val_start_idx = int(total_len * val_start_pct)
+        val_end_idx = int(total_len * val_end_pct)
+
+        train_df = df.iloc[:train_end_idx]
+        val_df = df.iloc[val_start_idx:val_end_idx]
+
+        train_res = _run_engine(train_df, strategy, "train")
+        if not train_res or train_res["metrics"]["total_trades"] < 10:
+            window_ratios.append(0.0)
+            continue
+            
+        train_cagr = train_res["metrics"]["cagr"]
+        if train_cagr <= 0:
+            window_ratios.append(0.0)
+            continue
+
+        val_res = _run_engine(val_df, strategy, "val")
+        if not val_res:
+            window_ratios.append(0.0)
+            continue
+            
+        val_cagr = val_res["metrics"]["cagr"]
+        wf_ratio = val_cagr / train_cagr if train_cagr > 0 else 0.0
+        window_ratios.append(wf_ratio)
+
+    # Require 4 of 5 to pass (ratio >= 0.5)
+    passes = sum(1 for r in window_ratios if r >= 0.5)
+    if passes < 4:
         return None
 
-    # Store validation cagr and wf ratio on the strategy
-    strategy.validation_cagr = val_cagr
-    strategy.walk_forward_ratio = wf_ratio
+    # Store stats
+    avg_wf_ratio = sum(window_ratios) / len(window_ratios)
+    strategy.walk_forward_ratio = avg_wf_ratio
     
-    # Store trade logs and monthly returns (from the full combined run or train run)
-    # The prompt says "Store both train and validation metrics separately" but mostly we care about the train metrics for the DB + WF ratio.
-    # Let's run a full backtest across all data to get the full equity curve and trades for the UI.
+    try:
+        import json
+        deep_stats = json.loads(strategy.deep_stats_json)
+        deep_stats["wf_window_ratios"] = window_ratios
+        strategy.deep_stats_json = json.dumps(deep_stats)
+    except:
+        pass
+        
     full_res = _run_engine(df, strategy, "full")
     if full_res is None: return None
     

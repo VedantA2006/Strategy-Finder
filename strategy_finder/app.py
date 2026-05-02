@@ -203,6 +203,43 @@ def compare_strategies():
     
     return render_template("compare.html", strategies=strategies)
 
+@app.route("/lineage/<strategy_id>")
+def strategy_lineage(strategy_id: str):
+    db = get_db()
+    
+    def fetch_ancestry(sid: str, depth: int = 0) -> dict | None:
+        if depth >= 4 or not sid: return None
+        s = db.get(sid)
+        if not s: return None
+        
+        node = {
+            "id": s.id,
+            "name": s.name,
+            "score": round(s.metrics.get("score", 0), 2),
+            "generation": s.generation
+        }
+        
+        children = []
+        if s.parent_a_id:
+            pa = fetch_ancestry(s.parent_a_id, depth + 1)
+            if pa: children.append(pa)
+        if s.parent_b_id and s.parent_b_id != s.parent_a_id:
+            pb = fetch_ancestry(s.parent_b_id, depth + 1)
+            if pb: children.append(pb)
+            
+        if children:
+            node["parents"] = children
+            
+        return node
+        
+    tree = fetch_ancestry(strategy_id)
+    db.close()
+    
+    if not tree:
+        abort(404)
+        
+    return jsonify(tree)
+
 
 @app.route("/live")
 def live_status():

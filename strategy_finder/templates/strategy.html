@@ -203,6 +203,14 @@
                             <span>Overfit Score</span>
                             <span class="metric-value">{{ "%.2f"|format(s.metrics.get('overfit_score', 0)) }}</span>
                         </div>
+                        <div style="display:flex; justify-content:space-between; padding:0.5rem 0;">
+                            <span>Walk-Forward Windows</span>
+                            <span class="metric-value">
+                                {% for r in s.metrics.get('wf_window_ratios', []) %}
+                                    <span style="display:inline-block; width:10px; height:10px; border-radius:2px; background: {{ '#22c55e' if r >= 0.5 else '#ef4444' }};" title="Ratio: {{ '%.2f'|format(r) }}"></span>
+                                {% endfor %}
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -251,6 +259,9 @@
             <span style="color:var(--text-primary);">rr_ratio:</span> {{ s.rr_ratio }} | 
             <span style="color:var(--text-primary);">cooldown:</span> {{ s.cooldown }} | 
             <span style="color:var(--text-primary);">atr_gate:</span> {{ s.atr_gate }}
+            {% if s.metrics.get('original_complexity') %}
+            | <span style="color:var(--text-primary);">Complexity:</span> <span style="text-decoration: line-through; color: #ef4444;">{{ s.metrics.get('original_complexity') }}</span> &rarr; <span style="color: #22c55e;">{{ s.condition_complexity }}</span>
+            {% endif %}
         </div>
         
         <div class="condition-block">
@@ -261,6 +272,15 @@
             <div style="color:var(--accent-red); font-size:0.7rem; text-transform:uppercase; margin-bottom:0.5rem;">Sell Conditions</div>
             <code>{{ s.sell_conditions }}</code>
         </div>
+    </div>
+    
+    <!-- Ancestry / Lineage -->
+    <div class="chart-container" style="margin-bottom:4rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>Genetic Ancestry</h3>
+            <button class="btn btn-primary" onclick="loadLineage()">Load Lineage Tree</button>
+        </div>
+        <div id="lineage-tree" style="margin-top: 1rem; font-family: 'Fira Code', monospace; font-size: 0.9rem;"></div>
     </div>
 </div>
 
@@ -320,6 +340,35 @@
             setTimeout(() => toast.classList.remove('show'), 3000);
         } catch (e) {
             alert("Export failed");
+        }
+    }
+
+    // Lineage Tree Action
+    function renderNode(node, depth) {
+        let indent = "&nbsp;&nbsp;&nbsp;&nbsp;".repeat(depth);
+        let prefix = depth > 0 ? "↳ " : "";
+        let html = `<div>${indent}${prefix}<a href="/strategy/${node.id}" style="color: var(--accent-blue); text-decoration: none;">${node.name}</a> <span style="color: var(--text-muted);">(Gen ${node.generation}, Score: ${node.score})</span></div>`;
+        if (node.parents) {
+            for (let p of node.parents) {
+                html += renderNode(p, depth + 1);
+            }
+        }
+        return html;
+    }
+
+    async function loadLineage() {
+        const container = document.getElementById('lineage-tree');
+        container.innerHTML = "Loading...";
+        try {
+            const res = await fetch(`/lineage/{{ s.id }}`);
+            if (res.ok) {
+                const data = await res.json();
+                container.innerHTML = renderNode(data, 0);
+            } else {
+                container.innerHTML = "No ancestry data available.";
+            }
+        } catch (e) {
+            container.innerHTML = "Failed to load ancestry.";
         }
     }
 </script>

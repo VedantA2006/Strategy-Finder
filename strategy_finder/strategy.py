@@ -33,6 +33,8 @@ class Strategy:
     name: str = ""
     generation: int = 0
     asset: str = "BTCUSDT"           # which asset this was tested on
+    parent_a_id: str = ""
+    parent_b_id: str = ""
 
     # ── ATR-based risk parameters ────────────────────────────────────────
     sl_mult: float = 1.5             # SL distance = atr_14 × sl_mult
@@ -50,7 +52,7 @@ class Strategy:
     metrics: dict = field(default_factory=dict)
 
     # ── Robustness fields (filled by robustness pipeline) ────────────────
-    walk_forward_ratio: float = 0.0       # validation_cagr / train_cagr
+    walk_forward_ratio: float = 0.0       # average WF ratio across 5 windows
     mc_drawdown_p95: float = 100.0        # Monte Carlo 95th percentile max DD
     parameter_sensitivity: float = 1.0    # max score drop when nudging params
     regime_bull_wr: float = 0.0           # win rate in bull regime
@@ -59,6 +61,9 @@ class Strategy:
     validation_cagr: float = 0.0          # CAGR on validation split
     p_value: float = 1.0                  # significance of win rate compared to random shuffle
     is_correlated: bool = False           # if highly correlated to existing top strategies
+    holdout_cagr: float = 0.0             # Live readiness CAGR (last 6m)
+    holdout_win_rate: float = 0.0         # Live readiness win rate (last 6m)
+    holdout_trades: int = 0               # Live readiness trades (last 6m)
 
     # ── Complexity / structure metadata ──────────────────────────────────
     condition_complexity: int = 0         # total clauses in buy + sell trees
@@ -67,6 +72,7 @@ class Strategy:
     # ── Trade log & monthly returns (JSON blobs, stored in DB) ───────────
     monthly_returns_json: str = "[]"
     trade_log_json: str = "[]"
+    deep_stats_json: str = "{}"           # For WF window ratios, original_complexity, etc.
 
     def __post_init__(self):
         if not self.id:
@@ -190,6 +196,8 @@ class Strategy:
             name=d.get("name", ""),
             generation=int(d.get("generation", 0)),
             asset=d.get("asset", "BTCUSDT"),
+            parent_a_id=d.get("parent_a_id", ""),
+            parent_b_id=d.get("parent_b_id", ""),
             sl_mult=float(d.get("sl_mult", 1.5)),
             rr_ratio=float(d.get("rr_ratio", 3.0)),
             cooldown=int(d.get("cooldown", 3)),
@@ -210,8 +218,12 @@ class Strategy:
             n_timeframes_used=int(d.get("n_timeframes_used", 1)),
             monthly_returns_json=d.get("monthly_returns_json", "[]"),
             trade_log_json=d.get("trade_log_json", "[]"),
+            deep_stats_json=d.get("deep_stats_json", "{}"),
             p_value=float(d.get("p_value", 1.0)),
             is_correlated=bool(d.get("is_correlated", False)),
+            holdout_cagr=float(d.get("holdout_cagr", 0.0)),
+            holdout_win_rate=float(d.get("holdout_win_rate", 0.0)),
+            holdout_trades=int(d.get("holdout_trades", 0)),
         )
 
     def to_json(self) -> str:

@@ -61,6 +61,10 @@ ASSETS = ["BTCUSDT"]
 # Years of data to fetch
 DATA_YEARS = 5
 
+import datetime
+from dateutil.relativedelta import relativedelta
+HOLDOUT_CUTOFF = pd.Timestamp(datetime.datetime.utcnow() - relativedelta(months=6))
+
 # Module-level cache: {(asset, tf_label): DataFrame}
 CACHED_DFS: dict[tuple[str, str], pd.DataFrame] = {}
 # Module-level cache: {asset: merged_DataFrame}

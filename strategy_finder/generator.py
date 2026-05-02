@@ -13,8 +13,39 @@ from __future__ import annotations
 import random
 import re
 from typing import Literal
+from dataclasses import dataclass
 
 from strategy import Strategy
+
+@dataclass
+class AdaptiveMutationConfig:
+    sl_mult_step: float = 0.3
+    rr_ratio_step: float = 0.5
+    cooldown_step: int = 2
+    atr_gate_step: float = 0.0005
+    trail_mult_step: float = 0.3
+    condition_mutate_prob: float = 0.5
+    param_mutate_prob: float = 0.4
+
+CATEGORY_WEIGHTS: dict[str, float] = {
+    "ema_crossover": 15, "rsi_thresh": 12, "macd_thresh": 10, "stoch_thresh": 5, 
+    "adx_thresh": 5, "bb_crossover": 10, "momentum_roc": 8, "candle_struct": 8, 
+    "volume_profile": 8, "price_struct": 5, "regime_filter": 5, "session_filter": 3,
+    "supertrend": 5, "vwap_dev": 5, "cmf": 5, "williams_r": 5
+}
+
+def update_category_weights(db) -> None:
+    rows = db.conn.execute("SELECT * FROM category_stats").fetchall()
+    if not rows: return
+    total_w = 0.0
+    weights = {}
+    for r in rows:
+        w = (r["appearances_top20"] + 1) / (r["appearances_total"] + 2)
+        weights[r["category"]] = w
+        total_w += w
+    if total_w > 0:
+        for k, v in weights.items():
+            CATEGORY_WEIGHTS[k] = v / total_w
 
 
 # ─── Massive Indicator Pool ─────────────────────────────────────────────────
@@ -33,13 +64,9 @@ def _rnd_slow_ema() -> int:
 
 def _random_single_condition(direction: Literal["buy", "sell"] = "buy") -> str:
     """Generate one comparison expression from the massive ingredient pool."""
-    category = random.choices(
-        ["ema_crossover", "rsi_thresh", "macd_thresh", "stoch_thresh", 
-         "adx_thresh", "bb_crossover", "momentum_roc", "candle_struct", 
-         "volume_profile", "price_struct", "regime_filter", "session_filter",
-         "supertrend", "vwap_dev", "cmf", "williams_r"],
-        weights=[15, 12, 10, 5, 5, 10, 8, 8, 8, 5, 5, 3, 5, 5, 5, 5]
-    )[0]
+    categories = list(CATEGORY_WEIGHTS.keys())
+    weights = [CATEGORY_WEIGHTS[k] for k in categories]
+    category = random.choices(categories, weights=weights)[0]
 
     tf = _rnd_tf()
     pfx = f"tf_{tf}_"
@@ -317,6 +344,8 @@ def crossover(parent_a: Strategy, parent_b: Strategy, generation: int) -> Strate
     child = Strategy(
         generation=generation,
         asset=parent_a.asset,
+        parent_a_id=parent_a.id,
+        parent_b_id=parent_b.id,
         sl_mult=random.choice([parent_a.sl_mult, parent_b.sl_mult]),
         rr_ratio=random.choice([parent_a.rr_ratio, parent_b.rr_ratio]),
         cooldown=random.choice([parent_a.cooldown, parent_b.cooldown]),
@@ -372,11 +401,13 @@ def crossover(parent_a: Strategy, parent_b: Strategy, generation: int) -> Strate
     return child
 
 
-def mutate_strategy(parent: Strategy, generation: int) -> Strategy:
+def mutate_strategy(parent: Strategy, generation: int, config: AdaptiveMutationConfig = None) -> Strategy:
     """Apply random mutations to a strategy."""
+    if config is None: config = AdaptiveMutationConfig()
     child = Strategy(
         generation=generation,
         asset=parent.asset,
+        parent_a_id=parent.id,
         sl_mult=parent.sl_mult,
         rr_ratio=parent.rr_ratio,
         cooldown=parent.cooldown,
@@ -388,23 +419,23 @@ def mutate_strategy(parent: Strategy, generation: int) -> Strategy:
     )
 
     # 1. Numeric param nudge
-    if random.random() < 0.4:
-        child.sl_mult = round(max(1.0, min(5.0, child.sl_mult + random.uniform(-0.3, 0.3))), 1)
-    if random.random() < 0.4:
-        child.rr_ratio = round(max(1.5, child.rr_ratio + random.uniform(-0.5, 0.5)), 1)
-    if random.random() < 0.2:
-        child.cooldown = max(2, min(15, child.cooldown + random.randint(-2, 2)))
-    if random.random() < 0.2:
-        child.atr_gate = round(max(0.0005, min(0.005, child.atr_gate + random.uniform(-0.0005, 0.0005))), 4)
-    if random.random() < 0.2:
-        child.trail_mult = round(max(0.0, min(3.0, child.trail_mult + random.uniform(-0.2, 0.2))), 1)
-    if random.random() < 0.2:
+    if random.random() < config.param_mutate_prob:
+        child.sl_mult = round(max(1.0, min(5.0, child.sl_mult + random.uniform(-config.sl_mult_step, config.sl_mult_step))), 1)
+    if random.random() < config.param_mutate_prob:
+        child.rr_ratio = round(max(1.5, child.rr_ratio + random.uniform(-config.rr_ratio_step, config.rr_ratio_step)), 1)
+    if random.random() < config.param_mutate_prob / 2:
+        child.cooldown = max(2, min(15, child.cooldown + random.randint(-config.cooldown_step, config.cooldown_step)))
+    if random.random() < config.param_mutate_prob / 2:
+        child.atr_gate = round(max(0.0005, min(0.005, child.atr_gate + random.uniform(-config.atr_gate_step, config.atr_gate_step))), 4)
+    if random.random() < config.param_mutate_prob / 2:
+        child.trail_mult = round(max(0.0, min(3.0, child.trail_mult + random.uniform(-config.trail_mult_step, config.trail_mult_step))), 1)
+    if random.random() < config.param_mutate_prob / 2:
         child.tp1_ratio = round(max(0.0, min(0.8, child.tp1_ratio + random.uniform(-0.1, 0.1))), 2)
 
     # 2. Mutate conditions
-    if random.random() < 0.5:
+    if random.random() < config.condition_mutate_prob:
         child.buy_conditions = _mutate_tree(child.buy_conditions, "buy")
-    if random.random() < 0.5:
+    if random.random() < config.condition_mutate_prob:
         child.sell_conditions = _mutate_tree(child.sell_conditions, "sell")
 
     # Enforce RR
