@@ -166,6 +166,7 @@ class StrategyDatabase:
         self.strategies_col.create_index([("is_correlated", ASCENDING)])
         self.strategies_col.create_index([("asset", ASCENDING)])
         self.strategies_col.create_index([("created_at", DESCENDING)])
+        self.strategies_col.create_index([("is_hof", ASCENDING), ("score", DESCENDING)])
         self.cond_templates_col.create_index([("clause", ASCENDING)], unique=True)
         # TTL index: events auto-expire after 24 hours
         self.events_col.create_index([("created_at", ASCENDING)], expireAfterSeconds=86400)
@@ -234,6 +235,7 @@ class StrategyDatabase:
             "holdout_win_rate": getattr(s, "holdout_win_rate", 0.0),
             "holdout_trades": getattr(s, "holdout_trades", 0),
             "deep_stats_json": getattr(s, "deep_stats_json", "{}"),
+            "is_hof": False,
             "created_at": datetime.datetime.utcnow().isoformat(),
         }
 

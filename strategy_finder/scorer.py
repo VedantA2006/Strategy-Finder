@@ -15,34 +15,45 @@ def score(metrics: dict, strategy: Strategy) -> float:
     Score a strategy based on its backtest metrics and robustness results.
     Returns -999 for disqualified strategies, otherwise a composite score.
     """
-    # ── Hard gates — instant disqualification ────────────────────────────
+    # ── Hard gates — Stage 1 discovery ───────────────────────────────────
     if metrics.get("dollar_rr", 0) < 1.5:
         return -999.0
-    if metrics.get("max_drawdown", 100) > 8.0:
-        return -999.0
-    if metrics.get("avg_trades_per_month", 0) < 3.0:
-        return -999.0
-    
-    wr = metrics.get("win_rate", 0)
-    if wr < 50.0 or wr > 78.0:  # Below 50% or overfitted high win rate disqualified
-        return -999.0
-        
-    if metrics.get("total_trades", 0) < 30:
-        return -999.0
-        
-    if strategy.walk_forward_ratio < 0.5:
-        return -999.0
-        
-    if strategy.mc_drawdown_p95 > 15.0:
-        return -999.0
-        
-    if strategy.parameter_sensitivity > 0.30:  # e.g., 0.35 means 35% drop
+
+    # Drawdown: raised from 8% to 15% — crypto needs room to breathe
+    if metrics.get("max_drawdown", 100) > 15.0:
         return -999.0
 
-    # ── Monthly CAGR gate ─────────────────────────────────────────────────
+    # Trades per month: lowered from 3 to 2
+    if metrics.get("avg_trades_per_month", 0) < 2.0:
+        return -999.0
+    
+    # Win rate: widened from 50–78% to 45–82%
+    # Dropping floor opens trend-following strategies with asymmetric RR
+    # A 43% win rate with 3.0 RR is more profitable than 65% with 1.5 RR
+    wr = metrics.get("win_rate", 0)
+    if wr < 45.0 or wr > 82.0:
+        return -999.0
+        
+    # Total trades: lowered from 30 to 20
+    if metrics.get("total_trades", 0) < 20:
+        return -999.0
+        
+    # Walk-forward ratio: lowered from 0.5 to 0.4 for discovery
+    if strategy.walk_forward_ratio < 0.4:
+        return -999.0
+        
+    # Monte Carlo p95 drawdown: raised from 15% to 20%
+    if strategy.mc_drawdown_p95 > 20.0:
+        return -999.0
+        
+    # Parameter sensitivity: raised from 0.30 to 0.40
+    if strategy.parameter_sensitivity > 0.40:
+        return -999.0
+
+    # Monthly CAGR: lowered from 15% to 8% — let scorer rank, not gate
     cagr = metrics.get("cagr", 0)
     monthly_cagr = ((1 + cagr / 100) ** (1/12) - 1) * 100
-    if monthly_cagr < 15.0:
+    if monthly_cagr < 8.0:
         return -999.0
 
     # ── Composite score ──────────────────────────────────────────────────

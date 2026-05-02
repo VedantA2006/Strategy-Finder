@@ -142,10 +142,10 @@ def _evaluate_worker(args: tuple) -> Strategy | None:
         return None
         
     qm = quick_res["metrics"]
-    if qm["max_drawdown"] > 8.0: 
+    if qm["max_drawdown"] > 15.0: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "drawdown", "value": qm["max_drawdown"], "timestamp": now_iso()})
         return None
-    if qm["win_rate"] < 50.0 or qm["win_rate"] > 85.0: 
+    if qm["win_rate"] < 45.0 or qm["win_rate"] > 85.0: 
         emit_event(event_queue, "strategy_event", {"phase": "rejected", "id": s.id[:8], "reason": "win_rate", "value": qm["win_rate"], "timestamp": now_iso()})
         return None
     if qm["avg_trades_per_month"] < 1.5: 
@@ -331,6 +331,60 @@ def run_robustness(strategy: Strategy, data: pd.DataFrame, base_res: dict) -> tu
     return True, ""
 
 
+def is_hof_candidate(strategy: Strategy) -> bool:
+    """
+    Strict promotion gate — only applied to strategies that already
+    passed Stage 1 scoring and exceeded HOF_SCORE_THRESHOLD.
+    A strategy must pass ALL of these to be promoted to HOF.
+    """
+    m = strategy.metrics
+
+    # Max drawdown: 12% (stricter than Stage 1's 15%)
+    if m.get("max_drawdown", 100) >= 12.0:
+        return False
+
+    # Win rate: 48–75% (tighter band than Stage 1's 45–82%)
+    wr = m.get("win_rate", 0)
+    if wr < 48.0 or wr > 75.0:
+        return False
+
+    # Avg trades per month: back to 3 (stricter than Stage 1's 2)
+    if m.get("avg_trades_per_month", 0) < 3.0:
+        return False
+
+    # Walk-forward ratio: 0.55 (stricter than Stage 1's 0.4)
+    if strategy.walk_forward_ratio < 0.55:
+        return False
+
+    # Monte Carlo p95: 18% (stricter than Stage 1's 20%)
+    if strategy.mc_drawdown_p95 >= 18.0:
+        return False
+
+    # Parameter sensitivity: 0.25 (stricter than Stage 1's 0.40)
+    if strategy.parameter_sensitivity >= 0.25:
+        return False
+
+    # Min total trades: 40 (stricter than Stage 1's 20)
+    if m.get("total_trades", 0) < 40:
+        return False
+
+    # Monthly CAGR: 12% (stricter than Stage 1's 8%)
+    cagr = m.get("cagr", 0)
+    monthly_cagr = ((1 + cagr / 100) ** (1/12) - 1) * 100
+    if monthly_cagr < 12.0:
+        return False
+
+    # Holdout CAGR must be positive — strategy must work on unseen data
+    if strategy.holdout_cagr <= 0:
+        return False
+
+    # p-value must be significant
+    if strategy.p_value >= 0.05:
+        return False
+
+    return True
+
+
 # ─── Genetic Algorithm ───────────────────────────────────────────────────────
 
 def tournament_selection(population: list[Strategy], k: int = 5) -> Strategy:
@@ -495,9 +549,6 @@ def run_forever() -> None:
                         if s_res.metrics.get("score", 0) > s_res._parent_score:
                             mutations_improved += 1
                     
-                    if s_res.metrics.get("score", 0) > HOF_SCORE_THRESHOLD:
-                        run_holdout_eval(s_res, asset_data[s_res.asset])
-                        
                     is_new_best = s_res.metrics.get("score", 0) > current_all_time_best
                     if is_new_best: current_all_time_best = s_res.metrics.get("score", 0)
                     
@@ -518,22 +569,55 @@ def run_forever() -> None:
                         "timestamp": now_iso()
                     })
                     
-                    # HoF event
-                    if s_res.metrics.get("score", 0) > HOF_SCORE_THRESHOLD:
-                        emit_event(event_queue, "strategy_event", {
-                            "phase": "hall_of_fame",
-                            "id": s_res.id[:8],
-                            "name": s_res.name,
-                            "score": s_res.metrics["score"],
-                            "timestamp": now_iso()
-                        })
-                    
                     db.save(s_res)
-                    try:
-                        from telegram_alerts import send_strategy_alert
-                        send_strategy_alert(s_res, db)
-                    except Exception:
-                        pass
+                    
+                    if s_res.metrics.get("score", 0) > HOF_SCORE_THRESHOLD:
+                        run_holdout_eval(s_res, asset_data[s_res.asset])
+                        
+                        if is_hof_candidate(s_res):
+                            # Mark as promoted in MongoDB
+                            db.strategies_col.update_one(
+                                {"id": s_res.id},
+                                {"$set": {
+                                    "is_hof": True,
+                                    "promoted_at": datetime.datetime.utcnow().isoformat()
+                                }}
+                            )
+                            
+                            # Emit HOF event to frontend
+                            emit_event(event_queue, "strategy_event", {
+                                "phase": "hall_of_fame",
+                                "id": s_res.id[:8],
+                                "name": s_res.name,
+                                "score": s_res.metrics["score"],
+                                "max_drawdown": s_res.metrics["max_drawdown"],
+                                "win_rate": s_res.metrics["win_rate"],
+                                "monthly_cagr": round(
+                                    ((1 + s_res.metrics["cagr"] / 100) ** (1/12) - 1) * 100, 2
+                                ),
+                                "walk_forward_ratio": s_res.walk_forward_ratio,
+                                "mc_drawdown_p95": s_res.mc_drawdown_p95,
+                                "holdout_cagr": s_res.holdout_cagr,
+                                "p_value": s_res.p_value,
+                                "timestamp": now_iso()
+                            })
+                            
+                            # Telegram alert only for promoted HOF strategies
+                            try:
+                                from telegram_alerts import send_strategy_alert
+                                send_strategy_alert(s_res, db)
+                            except Exception:
+                                pass
+                        else:
+                            # Passed Stage 1 but failed Stage 2 — save but don't alert
+                            emit_event(event_queue, "strategy_event", {
+                                "phase": "stage1_only",
+                                "id": s_res.id[:8],
+                                "name": s_res.name,
+                                "score": s_res.metrics["score"],
+                                "timestamp": now_iso()
+                            })
+                    
                     next_population.append(s_res)
                     scores_this_gen.append(s_res.metrics["score"])
                     scored_count += 1

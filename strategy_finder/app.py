@@ -283,7 +283,18 @@ def strategy_lineage(strategy_id: str):
 
 @app.route("/feed")
 def creation_feed():
-    return render_template("creation_feed.html")
+    db = get_db()
+    # Fetch last 100 events so the page isn't empty on load
+    recent_events = list(db.events_col.find(
+        {"event": "strategy_event"},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(100))
+    
+    events_list = [e["data"] for e in recent_events]
+    events_list.reverse() # chronological so they prepend correctly
+    
+    db.close()
+    return render_template("creation_feed.html", initial_events=json.dumps(events_list))
 
 @app.route("/signals")
 def signals_page():

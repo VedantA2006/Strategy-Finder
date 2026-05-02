@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Creation Feed — Strategy Finder</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=2">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <style>
         .feed-layout {
@@ -200,7 +200,10 @@
                     <button data-filter="saved">Saved</button>
                     <button data-filter="hall_of_fame">Hall of Fame</button>
                 </div>
-                <input type="text" id="search-input" class="search-input" placeholder="Search ID, name...">
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="search-input" class="search-input" placeholder="Search ID, name...">
+                    <button onclick="window.location.reload()" style="background: var(--accent-blue); color: white; border: none; padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;">Refresh</button>
+                </div>
             </div>
             <ul class="feed-scroll" id="feed-container">
                 <!-- Items injected here -->
@@ -391,7 +394,7 @@
         }
     }
 
-    socket.on("strategy_event", (data) => {
+    function processEvent(data) {
         lastEventTime = Date.now();
         navPulse.classList.add('active');
         
@@ -459,6 +462,16 @@
         if (feedContainer.children.length > 200) {
             feedContainer.removeChild(feedContainer.lastChild);
         }
+    }
+
+    // Load initial events from the server template
+    {% if initial_events %}
+    const initialData = {{ initial_events | safe }};
+    initialData.forEach(event => processEvent(event));
+    {% endif %}
+
+    socket.on("strategy_event", (data) => {
+        processEvent(data);
     });
 
     // Update global generation on page load via api event if possible
