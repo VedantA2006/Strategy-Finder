@@ -31,7 +31,7 @@ def send_strategy_alert(strategy: Strategy) -> None:
             return
         if strategy.metrics.get("win_rate", 0) < 50.0:
             return
-        if monthly_cagr < 2.0:
+        if monthly_cagr < 15.0:
             return
 
         score = strategy.metrics.get("score", 0)
