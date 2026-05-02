@@ -50,10 +50,7 @@
             </div>
             
             <select class="filter-select" onchange="window.location.href='/?asset='+this.value">
-                <option value="">All Assets</option>
-                <option value="BTCUSDT" {% if current_asset == 'BTCUSDT' %}selected{% endif %}>BTCUSDT</option>
-                <option value="ETHUSDT" {% if current_asset == 'ETHUSDT' %}selected{% endif %}>ETHUSDT</option>
-                <option value="SOLUSDT" {% if current_asset == 'SOLUSDT' %}selected{% endif %}>SOLUSDT</option>
+                <option value="BTCUSDT" selected>BTCUSDT</option>
             </select>
             <button class="btn btn-primary" style="margin-left:1rem;" onclick="compareSelected()">Compare Selected</button>
         </div>

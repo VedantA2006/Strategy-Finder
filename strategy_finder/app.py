@@ -77,7 +77,7 @@ _watcher_thread.start()
 @app.route("/")
 def index():
     """Leaderboard — top strategies with filtering."""
-    asset_filter = request.args.get("asset", None)
+    asset_filter = request.args.get("asset", "BTCUSDT")
     
     db = get_db()
     strategies = db.top_n(20, asset=asset_filter)
